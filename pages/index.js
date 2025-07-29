@@ -87,59 +87,65 @@ function KollektivWidget({ lat, lon }) {
       setLoading(true);
       setError(false);
       try {
-        // 1. Finn de 10 nærmeste stoppesteder (Entur API)
+        // 1. Finn de 15 nærmeste stoppesteder (Entur API)
         const stopRes = await fetch(
-          `https://api.entur.io/geocoder/v1/reverse?lat=${lat}&lon=${lon}&size=10&layers=venue`
+          `https://api.entur.io/geocoder/v1/reverse?lat=${lat}&lon=${lon}&size=15&layers=venue`
         );
         const stopData = await stopRes.json();
-        // Finn første "stop_place" med ID
-        const stop = stopData.features.find(
+        const stops = stopData.features.filter(
           f => f.properties.category === "stop_place" && f.properties.id
         );
-        const nearestStop = stop?.properties?.id;
-        const nearestStopName = stop?.properties?.name;
-        setStopName(nearestStopName || 'ukjent sted');
-        if (!nearestStop) {
-          setError(true);
-          setLoading(false);
-          return;
-        }
-
-        // 2. Hent avganger fra det stoppestedet (Entur JourneyPlanner)
-        const query = {
-          query: `
-            {
-              stopPlace(id: "${nearestStop}") {
-                name
-                estimatedCalls(timeRange: 7200, numberOfDepartures: 6) {
-                  realtime
-                  aimedDepartureTime
-                  expectedDepartureTime
-                  destinationDisplay {
-                    frontText
-                  }
-                  serviceJourney {
-                    line {
-                      publicCode
-                      transportMode
-                      authority { name }
+        let found = false;
+        for (let stop of stops) {
+          // Hent avganger for dette stoppet
+          const stopId = stop.properties.id;
+          const stopDisplayName = stop.properties.name;
+          const query = {
+            query: `
+              {
+                stopPlace(id: "${stopId}") {
+                  name
+                  estimatedCalls(timeRange: 7200, numberOfDepartures: 6) {
+                    realtime
+                    aimedDepartureTime
+                    expectedDepartureTime
+                    destinationDisplay {
+                      frontText
+                    }
+                    serviceJourney {
+                      line {
+                        publicCode
+                        transportMode
+                        authority { name }
+                      }
                     }
                   }
                 }
               }
+            `
+          };
+          const depRes = await fetch(
+            'https://api.entur.io/journey-planner/v3/graphql',
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(query)
             }
-          `
-        };
-        const depRes = await fetch(
-          'https://api.entur.io/journey-planner/v3/graphql',
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(query)
+          );
+          const depData = await depRes.json();
+          const calls = depData.data?.stopPlace?.estimatedCalls || [];
+          if (calls.length > 0) {
+            setDepartures(calls);
+            setStopName(stopDisplayName);
+            found = true;
+            break;
           }
-        );
-        const depData = await depRes.json();
-        setDepartures(depData.data?.stopPlace?.estimatedCalls || []);
+        }
+        if (!found) {
+          setDepartures([]);
+          setStopName('Ingen holdeplasser med avganger i nærheten.');
+          setError(true);
+        }
         setLoading(false);
       } catch (err) {
         setError(true);
@@ -165,7 +171,7 @@ function KollektivWidget({ lat, lon }) {
       {loading ? (
         <div>Laster avganger…</div>
       ) : error ? (
-        <div>Kunne ikke hente avganger for din posisjon.</div>
+        <div>{stopName}</div>
       ) : (
         <>
           <div style={{ fontWeight: 600, marginBottom: '0.3rem' }}>
@@ -211,6 +217,7 @@ function KollektivWidget({ lat, lon }) {
     </section>
   );
 }
+
 
 
 function formatDepartureTime(dt) {
