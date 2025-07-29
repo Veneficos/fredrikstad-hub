@@ -78,22 +78,25 @@ async function fetchNewsTitles(rssUrl) {
 // Kollektiv-widget: sanntidsavganger fra nærmeste stoppested
 function KollektivWidget({ lat, lon }) {
   const [results, setResults] = useState([]);
+  const [stopName, setStopName] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [manualStop, setManualStop] = useState('');
+  const [manualResults, setManualResults] = useState([]);
+  const [showManual, setShowManual] = useState(false);
 
   useEffect(() => {
+    if (manualStop) return; // hvis manuelt søk, hopp auto
     async function fetchDepartures() {
       setLoading(true);
       setError(false);
       try {
-        // 1. Lag et rektangel rundt posisjonen din (ca 2km radius)
-        const delta = 0.02; // ca 2km
+        // Søk etter stoppesteder rundt brukeren
+        const delta = 0.02; // ~2km
         const minLat = lat - delta;
         const maxLat = lat + delta;
         const minLon = lon - delta;
         const maxLon = lon + delta;
-
-        // 2. Spørr Entur GraphQL for alle stoppesteder i ruten
         const stopQuery = {
           query: `
             {
@@ -122,7 +125,7 @@ function KollektivWidget({ lat, lon }) {
         const stopData = await stopRes.json();
         const stops = stopData.data?.stopPlacesByBbox || [];
 
-        // Sorter stoppene etter avstand til bruker
+        // Prøv de 3 nærmeste
         const stopsSorted = stops
           .map(s => ({
             ...s,
@@ -132,63 +135,153 @@ function KollektivWidget({ lat, lon }) {
             )
           }))
           .sort((a, b) => a.distance - b.distance)
-          .slice(0, 5); // Ta de 5 nærmeste
+          .slice(0, 3);
 
-        // 3. Hent avganger for de nærmeste stoppene (parallelt)
-        const departuresAll = await Promise.all(
-          stopsSorted.map(async stop => {
-            const stopId = stop.id;
-            const stopName = stop.name;
-            const query = {
-              query: `
-                {
-                  stopPlace(id: "${stopId}") {
-                    name
-                    estimatedCalls(timeRange: 7200, numberOfDepartures: 6) {
-                      realtime
-                      aimedDepartureTime
-                      expectedDepartureTime
-                      destinationDisplay {
-                        frontText
-                      }
-                      serviceJourney {
-                        line {
-                          publicCode
-                          transportMode
-                          authority { name }
-                        }
+        let found = false;
+        for (let stop of stopsSorted) {
+          const stopId = stop.id;
+          const stopDisplayName = stop.name;
+          const query = {
+            query: `
+              {
+                stopPlace(id: "${stopId}") {
+                  name
+                  estimatedCalls(timeRange: 7200, numberOfDepartures: 6) {
+                    realtime
+                    aimedDepartureTime
+                    expectedDepartureTime
+                    destinationDisplay {
+                      frontText
+                    }
+                    serviceJourney {
+                      line {
+                        publicCode
+                        transportMode
+                        authority { name }
                       }
                     }
                   }
                 }
-              `
-            };
-            const depRes = await fetch(
-              'https://api.entur.io/journey-planner/v3/graphql',
-              {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(query)
               }
-            );
-            const depData = await depRes.json();
-            const calls = depData.data?.stopPlace?.estimatedCalls || [];
-            return { stopName, departures: calls, distance: stop.distance };
-          })
-        );
-
-        // 4. Filtrer ut stopp med ingen avganger
-        const withDepartures = departuresAll.filter(x => x.departures.length > 0);
-        setResults(withDepartures);
+            `
+          };
+          const depRes = await fetch(
+            'https://api.entur.io/journey-planner/v3/graphql',
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(query)
+            }
+          );
+          const depData = await depRes.json();
+          const calls = depData.data?.stopPlace?.estimatedCalls || [];
+          if (calls.length > 0) {
+            setResults([{ stopName: stopDisplayName, departures: calls, distance: stop.distance }]);
+            setStopName(stopDisplayName);
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          setResults([]);
+          setStopName('');
+          setError(true);
+        }
         setLoading(false);
-        if (withDepartures.length === 0) setError(true);
       } catch (err) {
         setError(true);
         setLoading(false);
       }
     }
     fetchDepartures();
-  }, [lat, lon]);
+  }, [lat, lon, manualStop]);
+
+  // Manuelt søk etter stoppested
+  async function handleManualSearch(e) {
+    e.preventDefault();
+    setManualResults([]);
+    setLoading(true);
+    setError(false);
+    try {
+      // Finn stoppested med navn lik manualStop
+      const stopSearch = {
+        query: `
+          {
+            stopPlaces(name: "${manualStop}", first: 5) {
+              id
+              name
+            }
+          }
+        `
+      };
+      const stopRes = await fetch(
+        'https://api.entur.io/journey-planner/v3/graphql',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(stopSearch)
+        }
+      );
+      const stopData = await stopRes.json();
+      const stops = stopData.data?.stopPlaces || [];
+      if (stops.length === 0) {
+        setError(true);
+        setManualResults([]);
+        setLoading(false);
+        return;
+      }
+
+      // Hent avganger for første treff
+      const stopId = stops[0].id;
+      const stopName = stops[0].name;
+      const query = {
+        query: `
+          {
+            stopPlace(id: "${stopId}") {
+              name
+              estimatedCalls(timeRange: 7200, numberOfDepartures: 8) {
+                realtime
+                aimedDepartureTime
+                expectedDepartureTime
+                destinationDisplay {
+                  frontText
+                }
+                serviceJourney {
+                  line {
+                    publicCode
+                    transportMode
+                    authority { name }
+                  }
+                }
+              }
+            }
+          }
+        `
+      };
+      const depRes = await fetch(
+        'https://api.entur.io/journey-planner/v3/graphql',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(query)
+        }
+      );
+      const depData = await depRes.json();
+      const calls = depData.data?.stopPlace?.estimatedCalls || [];
+      if (calls.length > 0) {
+        setManualResults([{ stopName, departures: calls }]);
+        setError(false);
+      } else {
+        setManualResults([]);
+        setError(true);
+      }
+      setLoading(false);
+    } catch (err) {
+      setManualResults([]);
+      setError(true);
+      setLoading(false);
+    }
+  }
 
   return (
     <section style={{
@@ -203,15 +296,13 @@ function KollektivWidget({ lat, lon }) {
       <h3 style={{ fontWeight: 700, fontSize: '1.19rem', color: '#125772', marginBottom: '0.6rem' }}>
         🚍 Kollektivavganger i nærheten
       </h3>
-      {loading ? (
+      {(loading && !manualStop) ? (
         <div>Laster avganger…</div>
-      ) : error || results.length === 0 ? (
-        <div>Fant ingen avganger for din posisjon akkurat nå.</div>
-      ) : (
+      ) : (results.length > 0) ? (
         results.map((stop, idx) => (
           <div key={idx} style={{ marginBottom: '1.2rem' }}>
             <div style={{ fontWeight: 600, marginBottom: '0.2rem', color: "#13607b" }}>
-              {stop.stopName} <span style={{ fontWeight: 400, color: "#409", fontSize: "0.98em" }}>({Math.round(stop.distance)} m unna)</span>
+              {stop.stopName} {stop.distance ? <span style={{ fontWeight: 400, color: "#409", fontSize: "0.98em" }}>({Math.round(stop.distance)} m unna)</span> : null}
             </div>
             <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
               {stop.departures.map((dep, i) => (
@@ -246,10 +337,106 @@ function KollektivWidget({ lat, lon }) {
             </ul>
           </div>
         ))
+      ) : (
+        <>
+          <div style={{ color: "#b31313", marginBottom: "0.8rem" }}>
+            Fant ingen avganger for din posisjon akkurat nå.
+          </div>
+          <button
+            style={{
+              background: "#16555e",
+              color: "white",
+              border: "none",
+              borderRadius: "0.5rem",
+              padding: "0.45rem 1rem",
+              cursor: "pointer",
+              marginBottom: "1rem"
+            }}
+            onClick={() => setShowManual(x => !x)}
+          >
+            {showManual ? "Skjul søk" : "Søk etter stoppested manuelt"}
+          </button>
+          {showManual && (
+            <form onSubmit={handleManualSearch}>
+              <input
+                type="text"
+                placeholder="Søk etter stoppested, f.eks. Fredrikstad bussterminal"
+                value={manualStop}
+                onChange={e => setManualStop(e.target.value)}
+                style={{
+                  padding: "0.4rem 1rem",
+                  borderRadius: "0.5rem",
+                  border: "1px solid #aaa",
+                  width: "90%",
+                  marginBottom: "0.5rem"
+                }}
+              />
+              <button
+                type="submit"
+                style={{
+                  background: "#228277",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "0.5rem",
+                  padding: "0.45rem 1.2rem",
+                  cursor: "pointer",
+                  marginLeft: "0.5rem"
+                }}
+              >
+                Vis avganger
+              </button>
+            </form>
+          )}
+          {/* Manuelle søkeresultater */}
+          {loading && manualStop && <div>Laster avganger…</div>}
+          {manualResults.length > 0 &&
+            manualResults.map((stop, idx) => (
+              <div key={idx} style={{ marginBottom: '1.2rem' }}>
+                <div style={{ fontWeight: 600, marginBottom: '0.2rem', color: "#13607b" }}>
+                  {stop.stopName}
+                </div>
+                <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                  {stop.departures.map((dep, i) => (
+                    <li key={i} style={{
+                      marginBottom: '0.3rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.6rem'
+                    }}>
+                      <span style={{
+                        background: '#b2f5ea',
+                        color: '#115e59',
+                        borderRadius: '0.5rem',
+                        padding: '0.12rem 0.5rem',
+                        fontWeight: 600
+                      }}>
+                        {dep.serviceJourney.line.transportMode === 'bus' ? '🚌' :
+                         dep.serviceJourney.line.transportMode === 'rail' ? '🚆' :
+                         dep.serviceJourney.line.transportMode === 'tram' ? '🚊' :
+                         dep.serviceJourney.line.transportMode === 'ferry' ? '⛴️' : '🚍'}{' '}
+                        {dep.serviceJourney.line.publicCode}
+                      </span>
+                      <span>
+                        {dep.destinationDisplay.frontText}
+                      </span>
+                      <span style={{ marginLeft: 'auto', color: '#055160', fontVariantNumeric: 'tabular-nums' }}>
+                        {formatDepartureTime(dep.expectedDepartureTime)}
+                      </span>
+                      {dep.realtime && <span style={{ color: '#00b373', fontWeight: 600, marginLeft: 6 }}>(RT)</span>}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          {error && manualStop && !loading && manualResults.length === 0 && (
+            <div style={{ color: "#a00" }}>Fant ingen avganger for valgt stoppested.</div>
+          )}
+        </>
       )}
     </section>
   );
 }
+
 
 function formatDepartureTime(dt) {
   const t = new Date(dt);
