@@ -25,19 +25,16 @@ const weatherTypes = {
 };
 
 function getCityName(lat, lon) {
-  // OpenStreetMap/Nominatim reverse-geocoding
   return fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}`)
     .then(res => res.json())
-    .then(data => {
-      return (
-        data.address?.city ||
-        data.address?.town ||
-        data.address?.village ||
-        data.address?.municipality ||
-        data.address?.county ||
-        "Ukjent sted"
-      );
-    })
+    .then(data =>
+      data.address?.city ||
+      data.address?.town ||
+      data.address?.village ||
+      data.address?.municipality ||
+      data.address?.county ||
+      "Ukjent sted"
+    )
     .catch(() => "Ukjent sted");
 }
 
@@ -56,7 +53,7 @@ export default function Home() {
           setLocation({ lat, lon });
           getCityName(lat, lon).then(name => setCity(name));
         },
-        () => {}, // Bruker avslår GPS, gjør ingenting (beholder default Fredrikstad)
+        () => {}, // Avslår GPS – behold default
         { timeout: 7000 }
       );
     }
@@ -84,7 +81,7 @@ export default function Home() {
         .header-bar {
           width: 100%;
           min-height: 76px;
-          background: #115e59;
+          background: #236e68;
           color: white;
           display: flex;
           align-items: center;
@@ -107,16 +104,18 @@ export default function Home() {
           font-size: 1.37rem;
           letter-spacing: 0.8px;
           color: white;
+          font-family: inherit;
         }
         .gps-box {
           display: flex;
           align-items: center;
           gap: 0.4rem;
-          background: #0c4037;
+          background: #184b45;
           border-radius: 0.8rem;
           padding: 0.38rem 0.93rem;
           font-size: 1.05rem;
           box-shadow: 0 2px 8px #177;
+          margin-left: 1rem;
         }
         .gps-box span {
           font-weight: 600;
@@ -173,15 +172,16 @@ export default function Home() {
           .gps-box {
             padding: 0.29rem 0.5rem;
             font-size: 0.93rem;
+            margin-left: 0;
           }
         }
       `}</style>
       {/* Header/banner */}
       <div className="header-bar">
-        {/* Logo */}
+        {/* Logo og [Sted] HUB */}
         <div className="header-logo">
-          <span className="logo-icon" title="GeoCity HUB">📍</span>
-          <span className="brand-name">GeoCity HUB</span>
+          <span className="logo-icon" title="Lokasjon">📍</span>
+          <span className="brand-name">{city} HUB</span>
         </div>
         {/* GPS/Byinfo */}
         <div className="gps-box">
@@ -237,7 +237,7 @@ export default function Home() {
         borderTopLeftRadius: '1rem',
         borderTopRightRadius: '1rem'
       }}>
-        <p>© 2025 GeoCity HUB</p>
+        <p>© 2025 {city} HUB</p>
       </footer>
     </div>
   );
