@@ -1,5 +1,13 @@
 import { useEffect, useState } from 'react';
 
+// Hvilke RSS-feeder til hvilke byer? Her kan du legge inn flere!
+const rssFeeds = {
+  'Fredrikstad': 'https://www.f-b.no/rss',
+  'Oslo': 'https://www.nrk.no/toppsaker.rss',
+  'Torp': 'https://www.sb.no/rss',
+  'Ukjent sted': 'https://www.vg.no/rss/feed/?limit=5'
+};
+
 const weatherTypes = {
   0: { text: "Klar himmel", emoji: "☀️" },
   1: { text: "Hovedsakelig klar", emoji: "🌤️" },
@@ -38,12 +46,29 @@ function getCityName(lat, lon) {
     .catch(() => "Ukjent sted");
 }
 
+// Hjelpefunksjon for å parse RSS til titler (uten ekstern pakke)
+async function fetchNewsTitles(rssUrl) {
+  try {
+    const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(rssUrl)}`);
+    const data = await res.json();
+    const xml = new window.DOMParser().parseFromString(data.contents, "text/xml");
+    const items = [...xml.querySelectorAll("item")];
+    return items.slice(0, 8).map(item => ({
+      title: item.querySelector("title")?.textContent || "",
+      link: item.querySelector("link")?.textContent || ""
+    }));
+  } catch {
+    return [];
+  }
+}
+
 export default function Home() {
   const [location, setLocation] = useState({ lat: 59.218, lon: 10.929 }); // Default: Fredrikstad
   const [city, setCity] = useState('Fredrikstad');
   const [weatherNow, setWeatherNow] = useState(null);
+  const [news, setNews] = useState([]);
 
-  // Hent brukerposisjon og oppdater
+  // Hent brukerposisjon og oppdater by
   useEffect(() => {
     if ("geolocation" in navigator) {
       navigator.geolocation.getCurrentPosition(
@@ -53,7 +78,7 @@ export default function Home() {
           setLocation({ lat, lon });
           getCityName(lat, lon).then(name => setCity(name));
         },
-        () => {}, // Avslår GPS – behold default
+        () => {}, // Avslår GPS
         { timeout: 7000 }
       );
     }
@@ -70,6 +95,12 @@ export default function Home() {
       })
       .catch(() => setWeatherNow(null));
   }, [location]);
+
+  // Hent nyheter basert på by
+  useEffect(() => {
+    const url = rssFeeds[city] || rssFeeds['Ukjent sted'];
+    fetchNewsTitles(url).then(titles => setNews(titles));
+  }, [city]);
 
   return (
     <div style={{
@@ -106,21 +137,6 @@ export default function Home() {
           color: white;
           font-family: inherit;
         }
-        .gps-box {
-          display: flex;
-          align-items: center;
-          gap: 0.4rem;
-          background: #184b45;
-          border-radius: 0.8rem;
-          padding: 0.38rem 0.93rem;
-          font-size: 1.05rem;
-          box-shadow: 0 2px 8px #177;
-          margin-left: 1rem;
-        }
-        .gps-box span {
-          font-weight: 600;
-          color: #c7f5e2;
-        }
         .weather-info-bar {
           display: flex;
           align-items: center;
@@ -135,6 +151,35 @@ export default function Home() {
         }
         .weather-info-bar .temp {
           font-weight: bold;
+        }
+        .marquee-bar {
+          width: 100%;
+          background: #184b45;
+          color: #e6ffe6;
+          font-size: 1.06rem;
+          padding: 0.6rem 0 0.5rem 0;
+          overflow: hidden;
+          border-bottom: 2px solid #0b4e3d;
+          white-space: nowrap;
+        }
+        .marquee-inner {
+          display: inline-block;
+          animation: scrollNews 40s linear infinite;
+        }
+        .marquee-inner span {
+          margin-right: 2.7rem;
+        }
+        .marquee-inner a {
+          color: #c6fff7;
+          text-decoration: none;
+          font-weight: 600;
+        }
+        .marquee-inner a:hover {
+          text-decoration: underline;
+        }
+        @keyframes scrollNews {
+          0%   { transform: translateX(100vw);}
+          100% { transform: translateX(-100vw);}
         }
         @media (max-width: 900px) {
           .header-bar {
@@ -169,11 +214,6 @@ export default function Home() {
           .brand-name {
             font-size: 0.9rem;
           }
-          .gps-box {
-            padding: 0.29rem 0.5rem;
-            font-size: 0.93rem;
-            margin-left: 0;
-          }
         }
       `}</style>
       {/* Header/banner */}
@@ -182,11 +222,6 @@ export default function Home() {
         <div className="header-logo">
           <span className="logo-icon" title="Lokasjon">📍</span>
           <span className="brand-name">{city} HUB</span>
-        </div>
-        {/* GPS/Byinfo */}
-        <div className="gps-box">
-          <span>📡</span>
-          <span>{city}</span>
         </div>
         {/* Vær-info */}
         <div className="weather-info-bar">
@@ -199,6 +234,21 @@ export default function Home() {
             </>
           ) : (
             <span>Laster vær...</span>
+          )}
+        </div>
+      </div>
+
+      {/* Rullende nyhetsbar */}
+      <div className="marquee-bar">
+        <div className="marquee-inner">
+          {news.length ? (
+            news.map((item, idx) => (
+              <span key={idx}>
+                <a href={item.link} target="_blank" rel="noopener noreferrer">{item.title}</a>
+              </span>
+            ))
+          ) : (
+            <span>Laster siste nyheter...</span>
           )}
         </div>
       </div>
