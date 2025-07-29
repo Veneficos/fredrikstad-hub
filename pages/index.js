@@ -24,53 +24,55 @@ const weatherTypes = {
   99: { text: "Tordenvær med hagl", emoji: "⛈️" }
 };
 
-export default function Home() {
-  const [weatherNow, setWeatherNow] = useState(null);
-  const [hourly, setHourly] = useState([]);
-  const [daily, setDaily] = useState([]);
+function getCityName(lat, lon) {
+  // OpenStreetMap/Nominatim reverse-geocoding
+  return fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}`)
+    .then(res => res.json())
+    .then(data => {
+      return (
+        data.address?.city ||
+        data.address?.town ||
+        data.address?.village ||
+        data.address?.municipality ||
+        data.address?.county ||
+        "Ukjent sted"
+      );
+    })
+    .catch(() => "Ukjent sted");
+}
 
+export default function Home() {
+  const [location, setLocation] = useState({ lat: 59.218, lon: 10.929 }); // Default: Fredrikstad
+  const [city, setCity] = useState('Fredrikstad');
+  const [weatherNow, setWeatherNow] = useState(null);
+
+  // Hent brukerposisjon og oppdater
+  useEffect(() => {
+    if ("geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const lat = pos.coords.latitude;
+          const lon = pos.coords.longitude;
+          setLocation({ lat, lon });
+          getCityName(lat, lon).then(name => setCity(name));
+        },
+        () => {}, // Bruker avslår GPS, gjør ingenting (beholder default Fredrikstad)
+        { timeout: 7000 }
+      );
+    }
+  }, []);
+
+  // Hent vær for valgt lokasjon
   useEffect(() => {
     fetch(
-      'https://api.open-meteo.com/v1/forecast?latitude=59.218&longitude=10.929&current_weather=true&hourly=temperature_2m,weathercode&daily=temperature_2m_max,temperature_2m_min,weathercode&timezone=auto'
+      `https://api.open-meteo.com/v1/forecast?latitude=${location.lat}&longitude=${location.lon}&current_weather=true&timezone=auto`
     )
       .then(res => res.json())
       .then(data => {
         setWeatherNow(data.current_weather);
-
-        // Neste 8 timer fra nå
-        const now = new Date();
-        const times = data.hourly.time;
-        const nextHours = [];
-        for (let i = 0; i < times.length; i++) {
-          const t = new Date(times[i]);
-          if (t > now && nextHours.length < 8) {
-            nextHours.push({
-              time: t,
-              temp: data.hourly.temperature_2m[i],
-              code: data.hourly.weathercode[i]
-            });
-          }
-        }
-        setHourly(nextHours);
-
-        // Neste dager
-        const nextDays = [];
-        for (let i = 0; i < data.daily.time.length; i++) {
-          nextDays.push({
-            date: new Date(data.daily.time[i]),
-            tmin: data.daily.temperature_2m_min[i],
-            tmax: data.daily.temperature_2m_max[i],
-            code: data.daily.weathercode[i]
-          });
-        }
-        setDaily(nextDays);
       })
-      .catch(() => {
-        setWeatherNow(null);
-        setHourly([]);
-        setDaily([]);
-      });
-  }, []);
+      .catch(() => setWeatherNow(null));
+  }, [location]);
 
   return (
     <div style={{
@@ -79,148 +81,125 @@ export default function Home() {
       fontFamily: 'system-ui, sans-serif'
     }}>
       <style>{`
-        .topbar {
-          display: flex;
-          align-items: center;
+        .header-bar {
+          width: 100%;
+          min-height: 76px;
           background: #115e59;
           color: white;
-          height: 70px;
-          padding: 0 2rem;
-          gap: 1rem;
-        }
-        .logo-icon {
-          font-size: 2.2rem;
-          margin-right: 0.65rem;
-        }
-        .brand-name {
-          font-size: 1.4rem;
-          font-weight: 700;
-          letter-spacing: 1px;
-        }
-        .brand-tag {
-          font-size: 0.95rem;
-          font-weight: 400;
-          color: #b6e0db;
-          margin-left: 0.2rem;
-        }
-        .weather-bar {
-          background: #e0f2fe;
-          box-shadow: 0 2px 8px #c7f5e2aa;
-          padding: 1.1rem 2rem 1.1rem 2rem;
-          display: flex;
-          flex-direction: column;
-          align-items: flex-start;
-          gap: 0.3rem;
-        }
-        .weather-main {
           display: flex;
           align-items: center;
-          gap: 1.2rem;
+          gap: 1.4rem;
+          padding: 0 2.5rem 0 2.5rem;
+          box-sizing: border-box;
+          font-size: 1.16rem;
         }
-        .weather-now {
-          font-size: 1.17rem;
-          font-weight: 600;
+        .header-logo {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+        }
+        .logo-icon {
+          font-size: 2.3rem;
+          margin-right: 0.3rem;
+        }
+        .brand-name {
+          font-weight: 800;
+          font-size: 1.37rem;
+          letter-spacing: 0.8px;
+          color: white;
+        }
+        .gps-box {
           display: flex;
           align-items: center;
           gap: 0.4rem;
+          background: #0c4037;
+          border-radius: 0.8rem;
+          padding: 0.38rem 0.93rem;
+          font-size: 1.05rem;
+          box-shadow: 0 2px 8px #177;
         }
-        .weather-extra {
-          font-size: 1rem;
-          color: #155e75;
+        .gps-box span {
+          font-weight: 600;
+          color: #c7f5e2;
         }
-        .weather-row {
+        .weather-info-bar {
           display: flex;
-          gap: 1.2rem;
-          margin-top: 0.3rem;
+          align-items: center;
+          gap: 0.85rem;
+          margin-left: auto;
+          font-size: 1.17rem;
+          font-weight: 500;
         }
-        .weather-card {
-          flex: 1 1 0;
-          min-width: 80px;
-          max-width: 120px;
-          background: #fff;
-          border-radius: 1rem;
-          padding: 0.7rem 0.2rem 0.5rem 0.2rem;
-          text-align: center;
-          box-shadow: 0 2px 8px #e0f2fe44;
-          transition: transform 0.11s, box-shadow 0.11s;
-          cursor: pointer;
+        .weather-info-bar .emoji {
+          font-size: 1.8rem;
+          margin-right: 0.23rem;
         }
-        .weather-card:hover {
-          transform: translateY(-4px) scale(1.05);
-          box-shadow: 0 6px 16px #0ea5e944;
-          background: #e0f2fe;
+        .weather-info-bar .temp {
+          font-weight: bold;
         }
-        @media (max-width: 800px) {
-          .topbar {
-            padding: 0 0.7rem;
-          }
-          .weather-bar {
-            padding: 1rem 0.6rem 1rem 0.6rem;
-          }
-          .weather-row {
-            gap: 0.5rem;
-          }
-          .weather-card {
-            min-width: 60px;
-            font-size: 0.92rem;
-            padding: 0.4rem 0.15rem 0.35rem 0.15rem;
-          }
-        }
-        @media (max-width: 600px) {
-          .brand-name {
-            font-size: 1.08rem;
-          }
-          .weather-main {
-            flex-direction: column;
-            align-items: flex-start;
+        @media (max-width: 900px) {
+          .header-bar {
+            font-size: 0.97rem;
+            padding: 0 0.5rem 0 0.5rem;
             gap: 0.6rem;
           }
-          .weather-row {
-            flex-wrap: wrap;
-            gap: 0.3rem;
+          .logo-icon {
+            font-size: 1.7rem;
+            margin-right: 0.2rem;
+          }
+          .brand-name {
+            font-size: 1.05rem;
+          }
+          .weather-info-bar .emoji {
+            font-size: 1.2rem;
+          }
+        }
+        @media (max-width: 700px) {
+          .header-bar {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 0.5rem;
+            min-height: 105px;
+            padding: 0.5rem;
+          }
+          .weather-info-bar {
+            margin-left: 0;
+            gap: 0.4rem;
+            font-size: 1rem;
+          }
+          .brand-name {
+            font-size: 0.9rem;
+          }
+          .gps-box {
+            padding: 0.29rem 0.5rem;
+            font-size: 0.93rem;
           }
         }
       `}</style>
-
-      {/* Top-baren med logo */}
-      <div className="topbar">
-        <span className="logo-icon" title="GeoCity HUB">📍</span>
-        <span className="brand-name">GeoCity <span className="brand-tag">HUB</span></span>
-      </div>
-
-      {/* Vær-linje øverst */}
-      <div className="weather-bar">
-        {weatherNow ? (
-          <div className="weather-main">
-            <span className="weather-now">
-              {weatherTypes[weatherNow.weathercode]?.emoji || "❔"}
-              {weatherTypes[weatherNow.weathercode]?.text || "Ukjent"}
-              {typeof weatherNow.temperature === "number" && (
-                <>| {weatherNow.temperature}°C</>
-              )}
-            </span>
-            <span className="weather-extra">
-              Vind: {weatherNow.windspeed} m/s
-            </span>
-          </div>
-        ) : (
-          <span className="weather-now">Laster værdata...</span>
-        )}
-
-        <div className="weather-row">
-          {daily.map((d, i) => (
-            <div key={i} className="weather-card">
-              <div style={{ fontSize: '1.5rem', marginBottom: '0.15rem' }}>
-                {weatherTypes[d.code]?.emoji || "❔"}
-              </div>
-              <div style={{ fontWeight: 'bold', fontSize: '1rem' }}>
-                {d.tmin}–{d.tmax}°C
-              </div>
-              <div style={{ fontSize: '0.93rem', color: "#334155", marginTop: '0.11rem' }}>
-                {d.date.toLocaleDateString('nb-NO', { weekday: 'short', day: '2-digit' })}
-              </div>
-            </div>
-          ))}
+      {/* Header/banner */}
+      <div className="header-bar">
+        {/* Logo */}
+        <div className="header-logo">
+          <span className="logo-icon" title="GeoCity HUB">📍</span>
+          <span className="brand-name">GeoCity HUB</span>
+        </div>
+        {/* GPS/Byinfo */}
+        <div className="gps-box">
+          <span>📡</span>
+          <span>{city}</span>
+        </div>
+        {/* Vær-info */}
+        <div className="weather-info-bar">
+          {weatherNow ? (
+            <>
+              <span className="emoji">{weatherTypes[weatherNow.weathercode]?.emoji || "❔"}</span>
+              <span>{weatherTypes[weatherNow.weathercode]?.text || "Ukjent"}</span>
+              <span className="temp">{typeof weatherNow.temperature === "number" ? `| ${weatherNow.temperature}°C` : ""}</span>
+              <span style={{ color: "#b6e0db" }}>| Vind: {weatherNow.windspeed} m/s</span>
+            </>
+          ) : (
+            <span>Laster vær...</span>
+          )}
         </div>
       </div>
 
