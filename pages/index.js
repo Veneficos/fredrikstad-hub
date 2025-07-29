@@ -77,82 +77,79 @@ async function fetchNewsTitles(rssUrl) {
 
 // Kollektiv-widget: sanntidsavganger fra nærmeste stoppested
 function KollektivWidget({ lat, lon }) {
-  const [departures, setDepartures] = useState([]);
-  const [stopName, setStopName] = useState('');
+  const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
   useEffect(() => {
-    async function fetchNearestDepartures() {
+    async function fetchDepartures() {
       setLoading(true);
       setError(false);
       try {
-        // 1. Finn de 15 nærmeste stoppesteder (Entur API)
-        const stopRes = await fetch(
-          `https://api.entur.io/geocoder/v1/reverse?lat=${lat}&lon=${lon}&size=15&layers=venue`
+        // 1. Hent alle stoppesteder innen 2.5km
+        const stopsRes = await fetch(
+          `https://api.entur.io/geocoder/v1/reverse?lat=${lat}&lon=${lon}&radius=2500&layers=venue&size=15`
         );
-        const stopData = await stopRes.json();
-        const stops = stopData.features.filter(
-          f => f.properties.category === "stop_place" && f.properties.id
-        );
-        let found = false;
-        for (let stop of stops) {
-          // Hent avganger for dette stoppet
-          const stopId = stop.properties.id;
-          const stopDisplayName = stop.properties.name;
-          const query = {
-            query: `
-              {
-                stopPlace(id: "${stopId}") {
-                  name
-                  estimatedCalls(timeRange: 7200, numberOfDepartures: 6) {
-                    realtime
-                    aimedDepartureTime
-                    expectedDepartureTime
-                    destinationDisplay {
-                      frontText
-                    }
-                    serviceJourney {
-                      line {
-                        publicCode
-                        transportMode
-                        authority { name }
+        const stopsData = await stopsRes.json();
+        // Sorter etter nærhet (geocoder gir nærmeste først)
+        const stops = stopsData.features
+          .filter(f => f.properties.category === "stop_place" && f.properties.id)
+          .slice(0, 4); // Ta maks 4 stoppesteder for ytelse
+
+        // 2. Hent avganger for alle stoppene parallelt
+        const departuresAll = await Promise.all(
+          stops.map(async stop => {
+            const stopId = stop.properties.id;
+            const stopName = stop.properties.name;
+            const query = {
+              query: `
+                {
+                  stopPlace(id: "${stopId}") {
+                    name
+                    estimatedCalls(timeRange: 7200, numberOfDepartures: 6) {
+                      realtime
+                      aimedDepartureTime
+                      expectedDepartureTime
+                      destinationDisplay {
+                        frontText
+                      }
+                      serviceJourney {
+                        line {
+                          publicCode
+                          transportMode
+                          authority { name }
+                        }
                       }
                     }
                   }
                 }
+              `
+            };
+            const depRes = await fetch(
+              'https://api.entur.io/journey-planner/v3/graphql',
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(query)
               }
-            `
-          };
-          const depRes = await fetch(
-            'https://api.entur.io/journey-planner/v3/graphql',
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(query)
-            }
-          );
-          const depData = await depRes.json();
-          const calls = depData.data?.stopPlace?.estimatedCalls || [];
-          if (calls.length > 0) {
-            setDepartures(calls);
-            setStopName(stopDisplayName);
-            found = true;
-            break;
-          }
-        }
-        if (!found) {
-          setDepartures([]);
-          setStopName('Ingen holdeplasser med avganger i nærheten.');
-          setError(true);
-        }
+            );
+            const depData = await depRes.json();
+            const calls = depData.data?.stopPlace?.estimatedCalls || [];
+            return { stopName, departures: calls };
+          })
+        );
+
+        // 3. Filtrer ut stopp med ingen avganger
+        const withDepartures = departuresAll.filter(x => x.departures.length > 0);
+        setResults(withDepartures);
         setLoading(false);
+        if (withDepartures.length === 0) setError(true);
       } catch (err) {
         setError(true);
         setLoading(false);
       }
     }
-    fetchNearestDepartures();
+    fetchDepartures();
   }, [lat, lon]);
 
   return (
@@ -160,28 +157,26 @@ function KollektivWidget({ lat, lon }) {
       background: '#e5f6ff',
       borderRadius: '1rem',
       padding: '1.2rem 1.7rem',
-      maxWidth: 500,
+      maxWidth: 700,
       width: '100%',
       margin: '2rem auto 0 auto',
       boxShadow: '0 2px 8px #bee3f880'
     }}>
       <h3 style={{ fontWeight: 700, fontSize: '1.19rem', color: '#125772', marginBottom: '0.6rem' }}>
-        🚍 Kollektivavganger nær deg
+        🚍 Kollektivavganger i nærheten
       </h3>
       {loading ? (
         <div>Laster avganger…</div>
-      ) : error ? (
-        <div>{stopName}</div>
+      ) : error || results.length === 0 ? (
+        <div>Fant ingen avganger for din posisjon akkurat nå.</div>
       ) : (
-        <>
-          <div style={{ fontWeight: 600, marginBottom: '0.3rem' }}>
-            {stopName}
-          </div>
-          {departures.length === 0 ? (
-            <div>Ingen avganger funnet de neste 2 timene.</div>
-          ) : (
+        results.map((stop, idx) => (
+          <div key={idx} style={{ marginBottom: '1.2rem' }}>
+            <div style={{ fontWeight: 600, marginBottom: '0.2rem', color: "#13607b" }}>
+              {stop.stopName}
+            </div>
             <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-              {departures.map((dep, i) => (
+              {stop.departures.map((dep, i) => (
                 <li key={i} style={{
                   marginBottom: '0.3rem',
                   display: 'flex',
@@ -211,17 +206,15 @@ function KollektivWidget({ lat, lon }) {
                 </li>
               ))}
             </ul>
-          )}
-        </>
+          </div>
+        ))
       )}
     </section>
   );
 }
 
-
-
+// formatDepartureTime kan være den samme som før
 function formatDepartureTime(dt) {
-  // Viser klokkeslett HH:MM og evt "om X min"
   const t = new Date(dt);
   const now = new Date();
   const mins = Math.round((t - now) / 60000);
@@ -231,6 +224,7 @@ function formatDepartureTime(dt) {
   }
   return hhmm;
 }
+
 
 export default function Home() {
   const [location, setLocation] = useState({ lat: 59.218, lon: 10.929 });
