@@ -80,15 +80,20 @@ export default function Home() {
       background: '#f3f4f6',
       fontFamily: 'system-ui, sans-serif'
     }}>
-      {/* Moderne styling for værkort og grid */}
+      {/* Styling for én-linje værkort */}
       <style>{`
-        .weather-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(105px, 1fr));
+        .weather-flex-row {
+          display: flex;
+          flex-wrap: nowrap;
           gap: 1.2rem;
           margin-top: 0.7rem;
+          width: 100%;
+          justify-content: center;
         }
         .weather-card {
+          flex: 1 1 0;
+          min-width: 80px;
+          max-width: 120px;
           background: #e0f2fe;
           border-radius: 1rem;
           padding: 1rem 0.6rem;
@@ -96,9 +101,6 @@ export default function Home() {
           box-shadow: 0 2px 8px #e0f2fe44;
           transition: transform 0.12s, box-shadow 0.12s;
           cursor: pointer;
-          min-width: 100px;
-          max-width: 140px;
-          margin: 0 auto;
         }
         .weather-card:hover {
           transform: translateY(-4px) scale(1.06);
@@ -111,10 +113,19 @@ export default function Home() {
         .weather-card.daily:hover {
           background: #bbf7d0;
         }
+        @media (max-width: 900px) {
+          .weather-flex-row {
+            gap: 0.6rem;
+          }
+          .weather-card {
+            min-width: 60px;
+            padding: 0.6rem 0.2rem;
+            font-size: 0.92rem;
+          }
+        }
         @media (max-width: 700px) {
-          .weather-grid {
-            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-            gap: 0.7rem;
+          .weather-flex-row {
+            flex-wrap: wrap;
           }
         }
       `}</style>
@@ -137,7 +148,7 @@ export default function Home() {
           background: 'white',
           borderRadius: '1rem',
           padding: '2rem',
-          maxWidth: '820px',
+          maxWidth: '950px',
           width: '100%',
           boxShadow: '0 2px 8px #c7f5e2',
           marginBottom: '2rem'
@@ -152,7 +163,7 @@ export default function Home() {
               </div>
               <div style={{ marginBottom: '1.2rem' }}>
                 <b>De neste timene:</b>
-                <div className="weather-grid">
+                <div className="weather-flex-row">
                   {hourly.map((h, i) => (
                     <div key={i} className="weather-card">
                       <div style={{ fontSize: '2rem', marginBottom: '0.2rem' }}>{weatherTypes[h.code]?.emoji || "❔"}</div>
@@ -166,7 +177,7 @@ export default function Home() {
               </div>
               <div>
                 <b>De neste dagene:</b>
-                <div className="weather-grid">
+                <div className="weather-flex-row">
                   {daily.map((d, i) => (
                     <div key={i} className="weather-card daily">
                       <div style={{ fontSize: '2rem', marginBottom: '0.2rem' }}>{weatherTypes[d.code]?.emoji || "❔"}</div>
