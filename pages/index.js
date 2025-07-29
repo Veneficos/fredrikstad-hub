@@ -86,21 +86,59 @@ function KollektivWidget({ lat, lon }) {
       setLoading(true);
       setError(false);
       try {
-        // 1. Hent alle stoppesteder innen 2.5km
-        const stopsRes = await fetch(
-          `https://api.entur.io/geocoder/v1/reverse?lat=${lat}&lon=${lon}&radius=2500&layers=venue&size=15`
-        );
-        const stopsData = await stopsRes.json();
-        // Sorter etter nærhet (geocoder gir nærmeste først)
-        const stops = stopsData.features
-          .filter(f => f.properties.category === "stop_place" && f.properties.id)
-          .slice(0, 4); // Ta maks 4 stoppesteder for ytelse
+        // 1. Lag et rektangel rundt posisjonen din (ca 2km radius)
+        const delta = 0.02; // ca 2km
+        const minLat = lat - delta;
+        const maxLat = lat + delta;
+        const minLon = lon - delta;
+        const maxLon = lon + delta;
 
-        // 2. Hent avganger for alle stoppene parallelt
+        // 2. Spørr Entur GraphQL for alle stoppesteder i ruten
+        const stopQuery = {
+          query: `
+            {
+              stopPlacesByBbox(
+                minimumLatitude: ${minLat}
+                minimumLongitude: ${minLon}
+                maximumLatitude: ${maxLat}
+                maximumLongitude: ${maxLon}
+              ) {
+                id
+                name
+                latitude
+                longitude
+              }
+            }
+          `
+        };
+        const stopRes = await fetch(
+          'https://api.entur.io/journey-planner/v3/graphql',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(stopQuery)
+          }
+        );
+        const stopData = await stopRes.json();
+        const stops = stopData.data?.stopPlacesByBbox || [];
+
+        // Sorter stoppene etter avstand til bruker
+        const stopsSorted = stops
+          .map(s => ({
+            ...s,
+            distance: Math.sqrt(
+              Math.pow((s.latitude - lat) * 111_000, 2) +
+              Math.pow((s.longitude - lon) * 70_000, 2)
+            )
+          }))
+          .sort((a, b) => a.distance - b.distance)
+          .slice(0, 5); // Ta de 5 nærmeste
+
+        // 3. Hent avganger for de nærmeste stoppene (parallelt)
         const departuresAll = await Promise.all(
-          stops.map(async stop => {
-            const stopId = stop.properties.id;
-            const stopName = stop.properties.name;
+          stopsSorted.map(async stop => {
+            const stopId = stop.id;
+            const stopName = stop.name;
             const query = {
               query: `
                 {
@@ -135,11 +173,11 @@ function KollektivWidget({ lat, lon }) {
             );
             const depData = await depRes.json();
             const calls = depData.data?.stopPlace?.estimatedCalls || [];
-            return { stopName, departures: calls };
+            return { stopName, departures: calls, distance: stop.distance };
           })
         );
 
-        // 3. Filtrer ut stopp med ingen avganger
+        // 4. Filtrer ut stopp med ingen avganger
         const withDepartures = departuresAll.filter(x => x.departures.length > 0);
         setResults(withDepartures);
         setLoading(false);
@@ -173,7 +211,7 @@ function KollektivWidget({ lat, lon }) {
         results.map((stop, idx) => (
           <div key={idx} style={{ marginBottom: '1.2rem' }}>
             <div style={{ fontWeight: 600, marginBottom: '0.2rem', color: "#13607b" }}>
-              {stop.stopName}
+              {stop.stopName} <span style={{ fontWeight: 400, color: "#409", fontSize: "0.98em" }}>({Math.round(stop.distance)} m unna)</span>
             </div>
             <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
               {stop.departures.map((dep, i) => (
@@ -213,7 +251,6 @@ function KollektivWidget({ lat, lon }) {
   );
 }
 
-// formatDepartureTime kan være den samme som før
 function formatDepartureTime(dt) {
   const t = new Date(dt);
   const now = new Date();
@@ -224,6 +261,7 @@ function formatDepartureTime(dt) {
   }
   return hhmm;
 }
+
 
 
 export default function Home() {
