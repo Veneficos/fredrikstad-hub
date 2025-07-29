@@ -1,11 +1,22 @@
 import { useEffect, useState } from 'react';
 
-// Hvilke RSS-feeder til hvilke byer? Her kan du legge inn flere!
-const rssFeeds = {
-  'Fredrikstad': 'https://www.f-b.no/rss',
-  'Oslo': 'https://www.nrk.no/toppsaker.rss',
-  'Torp': 'https://www.sb.no/rss',
-  'Ukjent sted': 'https://www.vg.no/rss/feed/?limit=5'
+// NRK fylkes-RSS: county-navn (fra Nominatim) -> NRK RSS-feed
+const nrkFylkeRss = {
+  'Oslo': 'https://www.nrk.no/osloogviken/toppsaker.rss',
+  'Viken': 'https://www.nrk.no/osloogviken/toppsaker.rss',
+  'Vestfold og Telemark': 'https://www.nrk.no/vestfoldogtelemark/toppsaker.rss',
+  'Innlandet': 'https://www.nrk.no/innlandet/toppsaker.rss',
+  'Trøndelag': 'https://www.nrk.no/trondelag/toppsaker.rss',
+  'Rogaland': 'https://www.nrk.no/rogaland/toppsaker.rss',
+  'Agder': 'https://www.nrk.no/sorlandet/toppsaker.rss',
+  'Vestland': 'https://www.nrk.no/vestland/toppsaker.rss',
+  'Møre og Romsdal': 'https://www.nrk.no/mr/toppsaker.rss',
+  'Nordland': 'https://www.nrk.no/nordland/toppsaker.rss',
+  'Troms og Finnmark': 'https://www.nrk.no/tromsogfinnmark/toppsaker.rss',
+  'Troms': 'https://www.nrk.no/tromsogfinnmark/toppsaker.rss',
+  'Finnmark': 'https://www.nrk.no/tromsogfinnmark/toppsaker.rss',
+  'Sápmi': 'https://www.nrk.no/sapmi/toppsaker.rss',
+  'default': 'https://www.nrk.no/toppsaker.rss'
 };
 
 const weatherTypes = {
@@ -32,30 +43,32 @@ const weatherTypes = {
   99: { text: "Tordenvær med hagl", emoji: "⛈️" }
 };
 
-function getCityName(lat, lon) {
+// Hent både by og fylke
+function getCityAndCounty(lat, lon) {
   return fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}`)
     .then(res => res.json())
-    .then(data =>
-      data.address?.city ||
-      data.address?.town ||
-      data.address?.village ||
-      data.address?.municipality ||
-      data.address?.county ||
-      "Ukjent sted"
-    )
-    .catch(() => "Ukjent sted");
+    .then(data => ({
+      city:
+        data.address?.city ||
+        data.address?.town ||
+        data.address?.village ||
+        data.address?.municipality ||
+        data.address?.county ||
+        "Ukjent sted",
+      county: data.address?.county || null
+    }))
+    .catch(() => ({ city: "Ukjent sted", county: null }));
 }
 
-// Hjelpefunksjon for å parse RSS til titler (uten ekstern pakke)
+// Hent nyheter fra NRK RSS, bruker rss2json.com for CORS
 async function fetchNewsTitles(rssUrl) {
   try {
-    const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(rssUrl)}`);
+    const res = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}`);
     const data = await res.json();
-    const xml = new window.DOMParser().parseFromString(data.contents, "text/xml");
-    const items = [...xml.querySelectorAll("item")];
-    return items.slice(0, 8).map(item => ({
-      title: item.querySelector("title")?.textContent || "",
-      link: item.querySelector("link")?.textContent || ""
+    if (!data.items) return [];
+    return data.items.slice(0, 8).map(item => ({
+      title: item.title || "",
+      link: item.link || ""
     }));
   } catch {
     return [];
@@ -63,12 +76,13 @@ async function fetchNewsTitles(rssUrl) {
 }
 
 export default function Home() {
-  const [location, setLocation] = useState({ lat: 59.218, lon: 10.929 }); // Default: Fredrikstad
+  const [location, setLocation] = useState({ lat: 59.218, lon: 10.929 });
   const [city, setCity] = useState('Fredrikstad');
+  const [county, setCounty] = useState('Viken');
   const [weatherNow, setWeatherNow] = useState(null);
   const [news, setNews] = useState([]);
 
-  // Hent brukerposisjon og oppdater by
+  // Hent brukerposisjon/by/fylke
   useEffect(() => {
     if ("geolocation" in navigator) {
       navigator.geolocation.getCurrentPosition(
@@ -76,9 +90,12 @@ export default function Home() {
           const lat = pos.coords.latitude;
           const lon = pos.coords.longitude;
           setLocation({ lat, lon });
-          getCityName(lat, lon).then(name => setCity(name));
+          getCityAndCounty(lat, lon).then(({ city, county }) => {
+            setCity(city);
+            setCounty(county || 'default');
+          });
         },
-        () => {}, // Avslår GPS
+        () => {}, // fallback, beholder Fredrikstad
         { timeout: 7000 }
       );
     }
@@ -90,17 +107,15 @@ export default function Home() {
       `https://api.open-meteo.com/v1/forecast?latitude=${location.lat}&longitude=${location.lon}&current_weather=true&timezone=auto`
     )
       .then(res => res.json())
-      .then(data => {
-        setWeatherNow(data.current_weather);
-      })
+      .then(data => setWeatherNow(data.current_weather))
       .catch(() => setWeatherNow(null));
   }, [location]);
 
-  // Hent nyheter basert på by
+  // Hent NRK nyheter for county
   useEffect(() => {
-    const url = rssFeeds[city] || rssFeeds['Ukjent sted'];
-    fetchNewsTitles(url).then(titles => setNews(titles));
-  }, [city]);
+    const url = nrkFylkeRss[county] || nrkFylkeRss['default'];
+    fetchNewsTitles(url).then(setNews);
+  }, [county]);
 
   return (
     <div style={{
@@ -248,7 +263,7 @@ export default function Home() {
               </span>
             ))
           ) : (
-            <span>Laster siste nyheter...</span>
+            <span>Laster siste nyheter for ditt fylke...</span>
           )}
         </div>
       </div>
