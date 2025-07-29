@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-// Enkle mapper fra værkode til tekst og emoji
+// Mapper fra værkode til tekst og emoji
 const weatherTypes = {
   0: { text: "Klar himmel", emoji: "☀️" },
   1: { text: "Hovedsakelig klar", emoji: "🌤️" },
@@ -31,7 +31,6 @@ export default function Home() {
   const [daily, setDaily] = useState([]);
 
   useEffect(() => {
-    // Vi henter vær både nå, time-for-time og dag-for-dag
     fetch(
       'https://api.open-meteo.com/v1/forecast?latitude=59.218&longitude=10.929&current_weather=true&hourly=temperature_2m,weathercode&daily=temperature_2m_max,temperature_2m_min,weathercode&timezone=auto'
     )
@@ -39,7 +38,7 @@ export default function Home() {
       .then(data => {
         setWeatherNow(data.current_weather);
 
-        // Finner dagens tidspunkt og henter ut neste 8 timer fra nå
+        // Neste 8 timer fra nå
         const now = new Date();
         const times = data.hourly.time;
         const nextHours = [];
@@ -55,7 +54,7 @@ export default function Home() {
         }
         setHourly(nextHours);
 
-        // Dager (maks/min)
+        // Neste dager
         const nextDays = [];
         for (let i = 0; i < data.daily.time.length; i++) {
           nextDays.push({
@@ -116,14 +115,21 @@ export default function Home() {
               </div>
               <div style={{ marginBottom: '1.2rem' }}>
                 <b>De neste timene:</b>
-                <div style={{ display: 'flex', gap: '1.2rem', marginTop: '0.6rem', overflowX: 'auto' }}>
+                <div style={{
+                  display: 'flex',
+                  gap: '1.2rem',
+                  marginTop: '0.6rem',
+                  flexWrap: 'wrap',
+                  justifyContent: 'center'
+                }}>
                   {hourly.map((h, i) => (
                     <div key={i} style={{
                       background: '#e0f2fe',
                       borderRadius: '0.7rem',
                       padding: '0.7rem',
                       textAlign: 'center',
-                      minWidth: '70px'
+                      minWidth: '70px',
+                      marginBottom: '0.7rem'
                     }}>
                       <div style={{ fontSize: '1.5rem' }}>{weatherTypes[h.code]?.emoji || "❔"}</div>
                       <div style={{ fontWeight: 'bold' }}>{h.temp}°C</div>
@@ -136,14 +142,21 @@ export default function Home() {
               </div>
               <div>
                 <b>De neste dagene:</b>
-                <div style={{ display: 'flex', gap: '1.2rem', marginTop: '0.6rem', overflowX: 'auto' }}>
+                <div style={{
+                  display: 'flex',
+                  gap: '1.2rem',
+                  marginTop: '0.6rem',
+                  flexWrap: 'wrap',
+                  justifyContent: 'center'
+                }}>
                   {daily.map((d, i) => (
                     <div key={i} style={{
                       background: '#d1fae5',
                       borderRadius: '0.7rem',
                       padding: '0.7rem',
                       textAlign: 'center',
-                      minWidth: '100px'
+                      minWidth: '100px',
+                      marginBottom: '0.7rem'
                     }}>
                       <div style={{ fontSize: '1.5rem' }}>{weatherTypes[d.code]?.emoji || "❔"}</div>
                       <div style={{ fontWeight: 'bold' }}>
