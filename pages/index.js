@@ -75,70 +75,157 @@ export default function Home() {
   return (
     <div style={{
       minHeight: '100vh',
-      display: 'flex',
-      flexDirection: 'column',
       background: '#f3f4f6',
       fontFamily: 'system-ui, sans-serif'
     }}>
-      {/* Styling for én-linje værkort */}
       <style>{`
-        .weather-flex-row {
+        .topbar {
           display: flex;
-          flex-wrap: nowrap;
+          align-items: center;
+          background: #115e59;
+          color: white;
+          height: 70px;
+          padding: 0 2rem;
+          gap: 1rem;
+        }
+        .logo-icon {
+          font-size: 2.2rem;
+          margin-right: 0.65rem;
+        }
+        .brand-name {
+          font-size: 1.4rem;
+          font-weight: 700;
+          letter-spacing: 1px;
+        }
+        .brand-tag {
+          font-size: 0.95rem;
+          font-weight: 400;
+          color: #b6e0db;
+          margin-left: 0.2rem;
+        }
+        .weather-bar {
+          background: #e0f2fe;
+          box-shadow: 0 2px 8px #c7f5e2aa;
+          padding: 1.1rem 2rem 1.1rem 2rem;
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 0.3rem;
+        }
+        .weather-main {
+          display: flex;
+          align-items: center;
           gap: 1.2rem;
-          margin-top: 0.7rem;
-          width: 100%;
-          justify-content: center;
+        }
+        .weather-now {
+          font-size: 1.17rem;
+          font-weight: 600;
+          display: flex;
+          align-items: center;
+          gap: 0.4rem;
+        }
+        .weather-extra {
+          font-size: 1rem;
+          color: #155e75;
+        }
+        .weather-row {
+          display: flex;
+          gap: 1.2rem;
+          margin-top: 0.3rem;
         }
         .weather-card {
           flex: 1 1 0;
           min-width: 80px;
           max-width: 120px;
-          background: #e0f2fe;
+          background: #fff;
           border-radius: 1rem;
-          padding: 1rem 0.6rem;
+          padding: 0.7rem 0.2rem 0.5rem 0.2rem;
           text-align: center;
           box-shadow: 0 2px 8px #e0f2fe44;
-          transition: transform 0.12s, box-shadow 0.12s;
+          transition: transform 0.11s, box-shadow 0.11s;
           cursor: pointer;
         }
         .weather-card:hover {
-          transform: translateY(-4px) scale(1.06);
+          transform: translateY(-4px) scale(1.05);
           box-shadow: 0 6px 16px #0ea5e944;
-          background: #bae6fd;
+          background: #e0f2fe;
         }
-        .weather-card.daily {
-          background: #d1fae5;
-        }
-        .weather-card.daily:hover {
-          background: #bbf7d0;
-        }
-        @media (max-width: 900px) {
-          .weather-flex-row {
-            gap: 0.6rem;
+        @media (max-width: 800px) {
+          .topbar {
+            padding: 0 0.7rem;
+          }
+          .weather-bar {
+            padding: 1rem 0.6rem 1rem 0.6rem;
+          }
+          .weather-row {
+            gap: 0.5rem;
           }
           .weather-card {
             min-width: 60px;
-            padding: 0.6rem 0.2rem;
             font-size: 0.92rem;
+            padding: 0.4rem 0.15rem 0.35rem 0.15rem;
           }
         }
-        @media (max-width: 700px) {
-          .weather-flex-row {
+        @media (max-width: 600px) {
+          .brand-name {
+            font-size: 1.08rem;
+          }
+          .weather-main {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 0.6rem;
+          }
+          .weather-row {
             flex-wrap: wrap;
+            gap: 0.3rem;
           }
         }
       `}</style>
-      <header style={{
-        background: '#115e59',
-        color: 'white',
-        padding: '1.5rem',
-        textAlign: 'center'
-      }}>
-        <h1 style={{ margin: 0, fontSize: '2.5rem' }}>Fredrikstad HUB</h1>
-      </header>
+
+      {/* Top-baren med logo */}
+      <div className="topbar">
+        <span className="logo-icon" title="GeoCity HUB">📍</span>
+        <span className="brand-name">GeoCity <span className="brand-tag">HUB</span></span>
+      </div>
+
+      {/* Vær-linje øverst */}
+      <div className="weather-bar">
+        {weatherNow ? (
+          <div className="weather-main">
+            <span className="weather-now">
+              {weatherTypes[weatherNow.weathercode]?.emoji || "❔"}
+              {weatherTypes[weatherNow.weathercode]?.text || "Ukjent"}
+              {typeof weatherNow.temperature === "number" && (
+                <>| {weatherNow.temperature}°C</>
+              )}
+            </span>
+            <span className="weather-extra">
+              Vind: {weatherNow.windspeed} m/s
+            </span>
+          </div>
+        ) : (
+          <span className="weather-now">Laster værdata...</span>
+        )}
+
+        <div className="weather-row">
+          {daily.map((d, i) => (
+            <div key={i} className="weather-card">
+              <div style={{ fontSize: '1.5rem', marginBottom: '0.15rem' }}>
+                {weatherTypes[d.code]?.emoji || "❔"}
+              </div>
+              <div style={{ fontWeight: 'bold', fontSize: '1rem' }}>
+                {d.tmin}–{d.tmax}°C
+              </div>
+              <div style={{ fontSize: '0.93rem', color: "#334155", marginTop: '0.11rem' }}>
+                {d.date.toLocaleDateString('nb-NO', { weekday: 'short', day: '2-digit' })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Hovedinnhold */}
       <main style={{
-        flex: 1,
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
@@ -148,61 +235,11 @@ export default function Home() {
           background: 'white',
           borderRadius: '1rem',
           padding: '2rem',
-          maxWidth: '950px',
-          width: '100%',
-          boxShadow: '0 2px 8px #c7f5e2',
-          marginBottom: '2rem'
-        }}>
-          <h2 style={{ fontSize: '1.5rem', marginBottom: '1rem' }}>🌦️ Værmelding for Fredrikstad</h2>
-          {weatherNow ? (
-            <>
-              <div style={{ fontSize: '1.2rem', marginBottom: '1rem', fontWeight: 'bold' }}>
-                Nå: {weatherTypes[weatherNow.weathercode]?.emoji} {weatherTypes[weatherNow.weathercode]?.text || "Ukjent"}<br />
-                Temperatur: {weatherNow.temperature}°C<br />
-                Vind: {weatherNow.windspeed} m/s
-              </div>
-              <div style={{ marginBottom: '1.2rem' }}>
-                <b>De neste timene:</b>
-                <div className="weather-flex-row">
-                  {hourly.map((h, i) => (
-                    <div key={i} className="weather-card">
-                      <div style={{ fontSize: '2rem', marginBottom: '0.2rem' }}>{weatherTypes[h.code]?.emoji || "❔"}</div>
-                      <div style={{ fontWeight: 'bold', fontSize: '1.15rem' }}>{h.temp}°C</div>
-                      <div style={{ fontSize: '0.97rem', color: "#334155", marginTop: '0.25rem' }}>
-                        {h.time.getHours()}:00
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <b>De neste dagene:</b>
-                <div className="weather-flex-row">
-                  {daily.map((d, i) => (
-                    <div key={i} className="weather-card daily">
-                      <div style={{ fontSize: '2rem', marginBottom: '0.2rem' }}>{weatherTypes[d.code]?.emoji || "❔"}</div>
-                      <div style={{ fontWeight: 'bold', fontSize: '1.1rem' }}>
-                        {d.tmin}–{d.tmax}°C
-                      </div>
-                      <div style={{ fontSize: '0.92rem', color: "#334155", marginTop: '0.22rem' }}>
-                        {d.date.toLocaleDateString('nb-NO', { weekday: 'short', day: '2-digit', month: '2-digit' })}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </>
-          ) : (
-            <p>Laster værdata...</p>
-          )}
-        </section>
-        <section style={{
-          background: 'white',
-          borderRadius: '1rem',
-          padding: '2rem',
           maxWidth: '700px',
           width: '100%',
-          boxShadow: '0 2px 8px #c7f5e2'
+          boxShadow: '0 2px 8px #c7f5e2',
+          marginBottom: '2rem',
+          marginTop: '2rem'
         }}>
           <h2>Hva ønsker du å se på forsiden?</h2>
           <ul>
@@ -221,7 +258,7 @@ export default function Home() {
         borderTopLeftRadius: '1rem',
         borderTopRightRadius: '1rem'
       }}>
-        <p>© 2025 Fredrikstad HUB</p>
+        <p>© 2025 GeoCity HUB</p>
       </footer>
     </div>
   );
