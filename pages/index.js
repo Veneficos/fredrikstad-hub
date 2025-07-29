@@ -84,14 +84,16 @@ function KollektivWidget({ lat, lon }) {
   const [manualStop, setManualStop] = useState('');
   const [manualResults, setManualResults] = useState([]);
   const [showManual, setShowManual] = useState(false);
+  const [suggestions, setSuggestions] = useState([]);
+  const [lastSuccess, setLastSuccess] = useState([]);
 
+  // Automatisk hent nærmeste stopp
   useEffect(() => {
-    if (manualStop) return; // hvis manuelt søk, hopp auto
+    if (manualStop) return; // Bruker søker selv, hopp auto
     async function fetchDepartures() {
       setLoading(true);
       setError(false);
       try {
-        // Søk etter stoppesteder rundt brukeren
         const delta = 0.02; // ~2km
         const minLat = lat - delta;
         const maxLat = lat + delta;
@@ -178,6 +180,7 @@ function KollektivWidget({ lat, lon }) {
           if (calls.length > 0) {
             setResults([{ stopName: stopDisplayName, departures: calls, distance: stop.distance }]);
             setStopName(stopDisplayName);
+            setLastSuccess([{ stopName: stopDisplayName, departures: calls, distance: stop.distance }]);
             found = true;
             break;
           }
@@ -196,44 +199,63 @@ function KollektivWidget({ lat, lon }) {
     fetchDepartures();
   }, [lat, lon, manualStop]);
 
-  // Manuelt søk etter stoppested
-  async function handleManualSearch(e) {
-    e.preventDefault();
+  // Autofullfør for manuell søk
+  useEffect(() => {
+    if (!manualStop || manualStop.length < 2) {
+      setSuggestions([]);
+      return;
+    }
+    const controller = new AbortController();
+    async function getSuggestions() {
+      try {
+        const search = {
+          query: `
+            {
+              stopPlaces(name: "${manualStop}", first: 6) {
+                id
+                name
+              }
+            }
+          `
+        };
+        const stopRes = await fetch(
+          'https://api.entur.io/journey-planner/v3/graphql',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(search),
+            signal: controller.signal
+          }
+        );
+        const stopData = await stopRes.json();
+        setSuggestions(stopData.data?.stopPlaces || []);
+      } catch (err) {
+        setSuggestions([]);
+      }
+    }
+    getSuggestions();
+    return () => controller.abort();
+  }, [manualStop]);
+
+  // Manuelt søk etter stoppested (ved submit eller velg)
+  async function handleManualSearch(e, stopObj) {
+    if (e) e.preventDefault();
     setManualResults([]);
     setLoading(true);
     setError(false);
-    try {
-      // Finn stoppested med navn lik manualStop
-      const stopSearch = {
-        query: `
-          {
-            stopPlaces(name: "${manualStop}", first: 5) {
-              id
-              name
-            }
-          }
-        `
-      };
-      const stopRes = await fetch(
-        'https://api.entur.io/journey-planner/v3/graphql',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(stopSearch)
-        }
-      );
-      const stopData = await stopRes.json();
-      const stops = stopData.data?.stopPlaces || [];
-      if (stops.length === 0) {
-        setError(true);
-        setManualResults([]);
+    let stopToUse = stopObj;
+    if (!stopToUse) {
+      // Prøv første forslag
+      stopToUse = suggestions && suggestions[0] ? suggestions[0] : null;
+      if (!stopToUse) {
         setLoading(false);
+        setError(true);
         return;
       }
-
-      // Hent avganger for første treff
-      const stopId = stops[0].id;
-      const stopName = stops[0].name;
+    }
+    try {
+      const stopId = stopToUse.id;
+      const stopName = stopToUse.name;
       const query = {
         query: `
           {
@@ -271,6 +293,7 @@ function KollektivWidget({ lat, lon }) {
       if (calls.length > 0) {
         setManualResults([{ stopName, departures: calls }]);
         setError(false);
+        setLastSuccess([{ stopName, departures: calls }]);
       } else {
         setManualResults([]);
         setError(true);
@@ -357,7 +380,7 @@ function KollektivWidget({ lat, lon }) {
             {showManual ? "Skjul søk" : "Søk etter stoppested manuelt"}
           </button>
           {showManual && (
-            <form onSubmit={handleManualSearch}>
+            <form onSubmit={e => handleManualSearch(e, null)} autoComplete="off">
               <input
                 type="text"
                 placeholder="Søk etter stoppested, f.eks. Fredrikstad bussterminal"
@@ -370,7 +393,30 @@ function KollektivWidget({ lat, lon }) {
                   width: "90%",
                   marginBottom: "0.5rem"
                 }}
+                autoComplete="off"
               />
+              {suggestions.length > 0 &&
+                <div style={{
+                  background: "#fff",
+                  border: "1px solid #a5e2e9",
+                  borderRadius: "0.4rem",
+                  marginBottom: "0.5rem",
+                  maxHeight: "130px",
+                  overflowY: "auto",
+                  position: "relative",
+                  zIndex: 100
+                }}>
+                  {suggestions.map(sug =>
+                    <div
+                      key={sug.id}
+                      style={{ padding: "0.2rem 0.8rem", cursor: "pointer" }}
+                      onClick={() => { setManualStop(sug.name); handleManualSearch(null, sug); }}
+                    >
+                      {sug.name}
+                    </div>
+                  )}
+                </div>
+              }
               <button
                 type="submit"
                 style={{
@@ -433,9 +479,56 @@ function KollektivWidget({ lat, lon }) {
           )}
         </>
       )}
+      {/* Vis siste suksess hvis alt feiler */}
+      {(!loading && !manualStop && results.length === 0 && lastSuccess.length > 0) &&
+        <>
+          <div style={{ color: "#d85" }}>
+            Viser siste kjente avganger (kan være noen minutter gamle)
+          </div>
+          {lastSuccess.map((stop, idx) => (
+            <div key={idx} style={{ marginBottom: '1.2rem' }}>
+              <div style={{ fontWeight: 600, marginBottom: '0.2rem', color: "#13607b" }}>
+                {stop.stopName} {stop.distance ? <span style={{ fontWeight: 400, color: "#409", fontSize: "0.98em" }}>({Math.round(stop.distance)} m unna)</span> : null}
+              </div>
+              <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                {stop.departures.map((dep, i) => (
+                  <li key={i} style={{
+                    marginBottom: '0.3rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.6rem'
+                  }}>
+                    <span style={{
+                      background: '#b2f5ea',
+                      color: '#115e59',
+                      borderRadius: '0.5rem',
+                      padding: '0.12rem 0.5rem',
+                      fontWeight: 600
+                    }}>
+                      {dep.serviceJourney.line.transportMode === 'bus' ? '🚌' :
+                       dep.serviceJourney.line.transportMode === 'rail' ? '🚆' :
+                       dep.serviceJourney.line.transportMode === 'tram' ? '🚊' :
+                       dep.serviceJourney.line.transportMode === 'ferry' ? '⛴️' : '🚍'}{' '}
+                      {dep.serviceJourney.line.publicCode}
+                    </span>
+                    <span>
+                      {dep.destinationDisplay.frontText}
+                    </span>
+                    <span style={{ marginLeft: 'auto', color: '#055160', fontVariantNumeric: 'tabular-nums' }}>
+                      {formatDepartureTime(dep.expectedDepartureTime)}
+                    </span>
+                    {dep.realtime && <span style={{ color: '#00b373', fontWeight: 600, marginLeft: 6 }}>(RT)</span>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </>
+      }
     </section>
   );
 }
+
 
 
 function formatDepartureTime(dt) {
