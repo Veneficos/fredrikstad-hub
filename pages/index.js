@@ -87,13 +87,17 @@ function KollektivWidget({ lat, lon }) {
       setLoading(true);
       setError(false);
       try {
-        // 1. Finn nærmeste stoppested (Entur API)
+        // 1. Finn de 10 nærmeste stoppesteder (Entur API)
         const stopRes = await fetch(
-          `https://api.entur.io/geocoder/v1/reverse?lat=${lat}&lon=${lon}&size=1`
+          `https://api.entur.io/geocoder/v1/reverse?lat=${lat}&lon=${lon}&size=10&layers=venue`
         );
         const stopData = await stopRes.json();
-        const nearestStop = stopData.features?.[0]?.properties?.id;
-        const nearestStopName = stopData.features?.[0]?.properties?.name;
+        // Finn første "stop_place" med ID
+        const stop = stopData.features.find(
+          f => f.properties.category === "stop_place" && f.properties.id
+        );
+        const nearestStop = stop?.properties?.id;
+        const nearestStopName = stop?.properties?.name;
         setStopName(nearestStopName || 'ukjent sted');
         if (!nearestStop) {
           setError(true);
@@ -101,7 +105,7 @@ function KollektivWidget({ lat, lon }) {
           return;
         }
 
-        // 2. Hent avganger fra stoppestedet (Entur JourneyPlanner)
+        // 2. Hent avganger fra det stoppestedet (Entur JourneyPlanner)
         const query = {
           query: `
             {
@@ -137,7 +141,7 @@ function KollektivWidget({ lat, lon }) {
         const depData = await depRes.json();
         setDepartures(depData.data?.stopPlace?.estimatedCalls || []);
         setLoading(false);
-      } catch {
+      } catch (err) {
         setError(true);
         setLoading(false);
       }
@@ -207,6 +211,7 @@ function KollektivWidget({ lat, lon }) {
     </section>
   );
 }
+
 
 function formatDepartureTime(dt) {
   // Viser klokkeslett HH:MM og evt "om X min"
