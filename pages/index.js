@@ -75,6 +75,151 @@ async function fetchNewsTitles(rssUrl) {
   }
 }
 
+// Kollektiv-widget: sanntidsavganger fra nærmeste stoppested
+function KollektivWidget({ lat, lon }) {
+  const [departures, setDepartures] = useState([]);
+  const [stopName, setStopName] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    async function fetchNearestDepartures() {
+      setLoading(true);
+      setError(false);
+      try {
+        // 1. Finn nærmeste stoppested (Entur API)
+        const stopRes = await fetch(
+          `https://api.entur.io/geocoder/v1/reverse?lat=${lat}&lon=${lon}&size=1`
+        );
+        const stopData = await stopRes.json();
+        const nearestStop = stopData.features?.[0]?.properties?.id;
+        const nearestStopName = stopData.features?.[0]?.properties?.name;
+        setStopName(nearestStopName || 'ukjent sted');
+        if (!nearestStop) {
+          setError(true);
+          setLoading(false);
+          return;
+        }
+
+        // 2. Hent avganger fra stoppestedet (Entur JourneyPlanner)
+        const query = {
+          query: `
+            {
+              stopPlace(id: "${nearestStop}") {
+                name
+                estimatedCalls(timeRange: 7200, numberOfDepartures: 6) {
+                  realtime
+                  aimedDepartureTime
+                  expectedDepartureTime
+                  destinationDisplay {
+                    frontText
+                  }
+                  serviceJourney {
+                    line {
+                      publicCode
+                      transportMode
+                      authority { name }
+                    }
+                  }
+                }
+              }
+            }
+          `
+        };
+        const depRes = await fetch(
+          'https://api.entur.io/journey-planner/v3/graphql',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(query)
+          }
+        );
+        const depData = await depRes.json();
+        setDepartures(depData.data?.stopPlace?.estimatedCalls || []);
+        setLoading(false);
+      } catch {
+        setError(true);
+        setLoading(false);
+      }
+    }
+    fetchNearestDepartures();
+  }, [lat, lon]);
+
+  return (
+    <section style={{
+      background: '#e5f6ff',
+      borderRadius: '1rem',
+      padding: '1.2rem 1.7rem',
+      maxWidth: 500,
+      width: '100%',
+      margin: '2rem auto 0 auto',
+      boxShadow: '0 2px 8px #bee3f880'
+    }}>
+      <h3 style={{ fontWeight: 700, fontSize: '1.19rem', color: '#125772', marginBottom: '0.6rem' }}>
+        🚍 Kollektivavganger nær deg
+      </h3>
+      {loading ? (
+        <div>Laster avganger…</div>
+      ) : error ? (
+        <div>Kunne ikke hente avganger for din posisjon.</div>
+      ) : (
+        <>
+          <div style={{ fontWeight: 600, marginBottom: '0.3rem' }}>
+            {stopName}
+          </div>
+          {departures.length === 0 ? (
+            <div>Ingen avganger funnet de neste 2 timene.</div>
+          ) : (
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+              {departures.map((dep, i) => (
+                <li key={i} style={{
+                  marginBottom: '0.3rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.6rem'
+                }}>
+                  <span style={{
+                    background: '#b2f5ea',
+                    color: '#115e59',
+                    borderRadius: '0.5rem',
+                    padding: '0.12rem 0.5rem',
+                    fontWeight: 600
+                  }}>
+                    {dep.serviceJourney.line.transportMode === 'bus' ? '🚌' :
+                     dep.serviceJourney.line.transportMode === 'rail' ? '🚆' :
+                     dep.serviceJourney.line.transportMode === 'tram' ? '🚊' :
+                     dep.serviceJourney.line.transportMode === 'ferry' ? '⛴️' : '🚍'}{' '}
+                    {dep.serviceJourney.line.publicCode}
+                  </span>
+                  <span>
+                    {dep.destinationDisplay.frontText}
+                  </span>
+                  <span style={{ marginLeft: 'auto', color: '#055160', fontVariantNumeric: 'tabular-nums' }}>
+                    {formatDepartureTime(dep.expectedDepartureTime)}
+                  </span>
+                  {dep.realtime && <span style={{ color: '#00b373', fontWeight: 600, marginLeft: 6 }}>(RT)</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+function formatDepartureTime(dt) {
+  // Viser klokkeslett HH:MM og evt "om X min"
+  const t = new Date(dt);
+  const now = new Date();
+  const mins = Math.round((t - now) / 60000);
+  const hhmm = t.toLocaleTimeString('no-NO', { hour: '2-digit', minute: '2-digit' });
+  if (mins > 0 && mins <= 90) {
+    return `om ${mins} min (${hhmm})`;
+  }
+  return hhmm;
+}
+
 export default function Home() {
   const [location, setLocation] = useState({ lat: 59.218, lon: 10.929 });
   const [city, setCity] = useState('Fredrikstad');
@@ -267,6 +412,9 @@ export default function Home() {
           )}
         </div>
       </div>
+
+      {/* Kollektiv-widget */}
+      <KollektivWidget lat={location.lat} lon={location.lon} />
 
       {/* Hovedinnhold */}
       <main style={{
