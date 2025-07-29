@@ -1,84 +1,20 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from "react";
 
-// NRK fylkes-RSS: county-navn (fra Nominatim) -> NRK RSS-feed
-const nrkFylkeRss = {
-  'Oslo': 'https://www.nrk.no/osloogviken/toppsaker.rss',
-  'Viken': 'https://www.nrk.no/osloogviken/toppsaker.rss',
-  'Vestfold og Telemark': 'https://www.nrk.no/vestfoldogtelemark/toppsaker.rss',
-  'Innlandet': 'https://www.nrk.no/innlandet/toppsaker.rss',
-  'Trøndelag': 'https://www.nrk.no/trondelag/toppsaker.rss',
-  'Rogaland': 'https://www.nrk.no/rogaland/toppsaker.rss',
-  'Agder': 'https://www.nrk.no/sorlandet/toppsaker.rss',
-  'Vestland': 'https://www.nrk.no/vestland/toppsaker.rss',
-  'Møre og Romsdal': 'https://www.nrk.no/mr/toppsaker.rss',
-  'Nordland': 'https://www.nrk.no/nordland/toppsaker.rss',
-  'Troms og Finnmark': 'https://www.nrk.no/tromsogfinnmark/toppsaker.rss',
-  'Troms': 'https://www.nrk.no/tromsogfinnmark/toppsaker.rss',
-  'Finnmark': 'https://www.nrk.no/tromsogfinnmark/toppsaker.rss',
-  'Sápmi': 'https://www.nrk.no/sapmi/toppsaker.rss',
-  'default': 'https://www.nrk.no/toppsaker.rss'
-};
-
-const weatherTypes = {
-  0: { text: "Klar himmel", emoji: "☀️" },
-  1: { text: "Hovedsakelig klar", emoji: "🌤️" },
-  2: { text: "Delvis skyet", emoji: "⛅" },
-  3: { text: "Overskyet", emoji: "☁️" },
-  45: { text: "Tåke", emoji: "🌫️" },
-  48: { text: "Is-tåke", emoji: "🌫️" },
-  51: { text: "Yr", emoji: "🌦️" },
-  53: { text: "Lett yr", emoji: "🌦️" },
-  55: { text: "Kraftig yr", emoji: "🌧️" },
-  61: { text: "Regnbyger", emoji: "🌧️" },
-  63: { text: "Regn", emoji: "🌧️" },
-  65: { text: "Kraftig regn", emoji: "🌧️" },
-  71: { text: "Snø", emoji: "🌨️" },
-  73: { text: "Sludd", emoji: "🌨️" },
-  75: { text: "Kraftig snø", emoji: "❄️" },
-  80: { text: "Regnbyger", emoji: "🌦️" },
-  81: { text: "Kraftige regnbyger", emoji: "🌧️" },
-  82: { text: "Voldsomt regn", emoji: "⛈️" },
-  95: { text: "Tordenvær", emoji: "⛈️" },
-  96: { text: "Tordenvær med sludd", emoji: "⛈️" },
-  99: { text: "Tordenvær med hagl", emoji: "⛈️" }
-};
-
-// Hent både by og fylke
-function getCityAndCounty(lat, lon) {
-  return fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}`)
-    .then(res => res.json())
-    .then(data => ({
-      city:
-        data.address?.city ||
-        data.address?.town ||
-        data.address?.village ||
-        data.address?.municipality ||
-        data.address?.county ||
-        "Ukjent sted",
-      county: data.address?.county || null
-    }))
-    .catch(() => ({ city: "Ukjent sted", county: null }));
-}
-
-// Hent nyheter fra NRK RSS, bruker rss2json.com for CORS
-async function fetchNewsTitles(rssUrl) {
-  try {
-    const res = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}`);
-    const data = await res.json();
-    if (!data.items) return [];
-    return data.items.slice(0, 8).map(item => ({
-      title: item.title || "",
-      link: item.link || ""
-    }));
-  } catch {
-    return [];
+// Hjelpefunksjon for klokkeslett-format:
+function formatDepartureTime(dt) {
+  const t = new Date(dt);
+  const now = new Date();
+  const mins = Math.round((t - now) / 60000);
+  const hhmm = t.toLocaleTimeString('no-NO', { hour: '2-digit', minute: '2-digit' });
+  if (mins > 0 && mins <= 90) {
+    return `om ${mins} min (${hhmm})`;
   }
+  return hhmm;
 }
 
-// Kollektiv-widget: sanntidsavganger fra nærmeste stoppested
+// === KollektivWidget (viser kun én neste avgang per stopp) ===
 function KollektivWidget({ lat, lon }) {
   const [results, setResults] = useState([]);
-  const [stopName, setStopName] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [manualStop, setManualStop] = useState('');
@@ -87,9 +23,8 @@ function KollektivWidget({ lat, lon }) {
   const [suggestions, setSuggestions] = useState([]);
   const [lastSuccess, setLastSuccess] = useState([]);
 
-  // Automatisk hent nærmeste stopp
   useEffect(() => {
-    if (manualStop) return; // Bruker søker selv, hopp auto
+    if (manualStop) return; // Skipp auto hvis man søker manuelt
     async function fetchDepartures() {
       setLoading(true);
       setError(false);
@@ -126,8 +61,6 @@ function KollektivWidget({ lat, lon }) {
         );
         const stopData = await stopRes.json();
         const stops = stopData.data?.stopPlacesByBbox || [];
-
-        // Prøv de 3 nærmeste
         const stopsSorted = stops
           .map(s => ({
             ...s,
@@ -179,14 +112,12 @@ function KollektivWidget({ lat, lon }) {
           const depData = await depRes.json();
           const calls = depData.data?.stopPlace?.estimatedCalls || [];
           if (calls.length > 0) {
-            // Ta kun første avgang!
             newResults.push({ stopName: stopDisplayName, departures: [calls[0]], distance: stop.distance });
             found = true;
           }
         }
         setResults(newResults);
         if (found) setLastSuccess(newResults);
-        if (!found) setStopName('');
         setError(!found);
         setLoading(false);
       } catch (err) {
@@ -235,7 +166,7 @@ function KollektivWidget({ lat, lon }) {
     return () => controller.abort();
   }, [manualStop]);
 
-  // Manuelt søk etter stoppested (ved submit eller velg)
+  // Manuelt søk
   async function handleManualSearch(e, stopObj) {
     if (e) e.preventDefault();
     setManualResults([]);
@@ -288,7 +219,7 @@ function KollektivWidget({ lat, lon }) {
       const depData = await depRes.json();
       const calls = depData.data?.stopPlace?.estimatedCalls || [];
       if (calls.length > 0) {
-        setManualResults([{ stopName, departures: [calls[0]] }]); // kun første avgang
+        setManualResults([{ stopName, departures: [calls[0]] }]);
         setError(false);
         setLastSuccess([{ stopName, departures: [calls[0]] }]);
       } else {
@@ -307,13 +238,13 @@ function KollektivWidget({ lat, lon }) {
     <section style={{
       background: '#e5f6ff',
       borderRadius: '1rem',
-      padding: '1.2rem 1.7rem',
-      maxWidth: 700,
-      width: '100%',
-      margin: '2rem auto 0 auto',
-      boxShadow: '0 2px 8px #bee3f880'
+      padding: '1.2rem 1.1rem',
+      maxWidth: 370,
+      width: "100%",
+      boxShadow: '0 2px 8px #bee3f880',
+      minHeight: 170
     }}>
-      <h3 style={{ fontWeight: 700, fontSize: '1.19rem', color: '#125772', marginBottom: '0.6rem' }}>
+      <h3 style={{ fontWeight: 700, fontSize: '1.08rem', color: '#125772', marginBottom: '0.6rem' }}>
         🚍 Kollektivavganger i nærheten
       </h3>
       {(loading && !manualStop) ? (
@@ -432,7 +363,6 @@ function KollektivWidget({ lat, lon }) {
               </button>
             </form>
           )}
-          {/* Manuelle søkeresultater */}
           {loading && manualStop && <div>Laster avganger…</div>}
           {manualResults.length > 0 &&
             manualResults.map((stop, idx) => {
@@ -480,7 +410,7 @@ function KollektivWidget({ lat, lon }) {
           )}
         </>
       )}
-      {/* Hvis du viser siste kjente avganger som fallback, samme prinsipp: kun første avgang */}
+      {/* Fallback: siste kjente avganger */}
       {(!loading && !manualStop && results.length === 0 && lastSuccess.length > 0) &&
         <>
           <div style={{ color: "#d85" }}>
@@ -532,254 +462,296 @@ function KollektivWidget({ lat, lon }) {
   );
 }
 
+// === Vær-widget (henter fra met.no) ===
+function VaerWidget({ lat, lon, placeName }) {
+  const [weather, setWeather] = useState(null);
 
+  useEffect(() => {
+    async function fetchWeather() {
+      try {
+        // met.no Locationforecast (Ingen API-nøkkel trengs)
+        const res = await fetch(
+          `https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${lat}&lon=${lon}`,
+          { headers: { "User-Agent": "GeoCityHub/1.0 github.com" } }
+        );
+        const data = await res.json();
+        const now = data.properties.timeseries[0];
+        // Finn timesdata (neste 6 timer) og daglig data (neste 7 dager)
+        const nextHours = data.properties.timeseries.slice(0, 7).map(e => ({
+          time: e.time,
+          temp: e.data.instant.details.air_temperature,
+          wind: e.data.instant.details.wind_speed,
+          symbol: e.data.next_1_hours?.summary.symbol_code || ""
+        }));
+        const nextDays = [];
+        let lastDate = "";
+        data.properties.timeseries.forEach(e => {
+          const d = e.time.split("T")[0];
+          if (d !== lastDate) {
+            nextDays.push({
+              date: d,
+              tempMin: e.data.instant.details.air_temperature,
+              tempMax: e.data.instant.details.air_temperature,
+              symbol: e.data.next_6_hours?.summary.symbol_code || ""
+            });
+            lastDate = d;
+          }
+        });
+        setWeather({ now, nextHours, nextDays: nextDays.slice(0, 6) });
+      } catch (e) {
+        setWeather(null);
+      }
+    }
+    fetchWeather();
+  }, [lat, lon]);
 
+  if (!weather) return (
+    <section style={{ background: "#fffbe8", borderRadius: "1rem", minHeight: 170, padding: "1.2rem 1.1rem" }}>
+      <b>☀️ Været for {placeName || "området"}:</b>
+      <div>Laster værdata…</div>
+    </section>
+  );
 
-function formatDepartureTime(dt) {
-  const t = new Date(dt);
-  const now = new Date();
-  const mins = Math.round((t - now) / 60000);
-  const hhmm = t.toLocaleTimeString('no-NO', { hour: '2-digit', minute: '2-digit' });
-  if (mins > 0 && mins <= 90) {
-    return `om ${mins} min (${hhmm})`;
-  }
-  return hhmm;
+  const wicon = symb =>
+    symb?.includes("rain") ? "🌧️" :
+    symb?.includes("cloud") ? "⛅" :
+    symb?.includes("clear") ? "☀️" :
+    symb?.includes("snow") ? "❄️" :
+    "🌡️";
+
+  return (
+    <section style={{
+      background: '#fffbe8',
+      borderRadius: '1rem',
+      padding: '1.2rem 1.1rem',
+      minHeight: 170,
+      boxShadow: '0 2px 8px #ffecb3a1'
+    }}>
+      <b>☀️ Vær for {placeName || "området"}</b>
+      <div style={{ margin: "0.5rem 0" }}>
+        Nå: <span style={{ fontWeight: 600 }}>{wicon(weather.nextHours[0]?.symbol)} {weather.nextHours[0]?.temp?.toFixed(1)}°C</span>
+        &nbsp; Vind: {weather.nextHours[0]?.wind} m/s
+      </div>
+      <div>
+        <b>Senere i dag:</b>
+        <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", marginTop: 2 }}>
+          {weather.nextHours.slice(1).map(h => (
+            <div key={h.time} style={{
+              background: "#e8f4ff",
+              borderRadius: 8,
+              minWidth: 60,
+              textAlign: "center",
+              fontSize: 14,
+              padding: 4
+            }}>
+              <div>{wicon(h.symbol)}</div>
+              <div>{new Date(h.time).getHours()}:00</div>
+              <div>{h.temp?.toFixed(1)}°C</div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={{ marginTop: 8 }}>
+        <b>Neste dager:</b>
+        <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>
+          {weather.nextDays.map(d => (
+            <div key={d.date} style={{
+              background: "#e4fdea",
+              borderRadius: 8,
+              minWidth: 68,
+              textAlign: "center",
+              fontSize: 14,
+              padding: 4
+            }}>
+              <div>{wicon(d.symbol)}</div>
+              <div>{d.date.slice(5)}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
 }
 
+// === Nyheter-widget (marquee + RSS) ===
+function NyheterWidget({ fylke }) {
+  const [nyheter, setNyheter] = useState([]);
 
-
-export default function Home() {
-  const [location, setLocation] = useState({ lat: 59.218, lon: 10.929 });
-  const [city, setCity] = useState('Fredrikstad');
-  const [county, setCounty] = useState('Viken');
-  const [weatherNow, setWeatherNow] = useState(null);
-  const [news, setNews] = useState([]);
-
-  // Hent brukerposisjon/by/fylke
   useEffect(() => {
-    if ("geolocation" in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const lat = pos.coords.latitude;
-          const lon = pos.coords.longitude;
-          setLocation({ lat, lon });
-          getCityAndCounty(lat, lon).then(({ city, county }) => {
-            setCity(city);
-            setCounty(county || 'default');
-          });
-        },
-        () => {}, // fallback, beholder Fredrikstad
-        { timeout: 7000 }
-      );
+    async function fetchRSS() {
+      let url = "https://www.nrk.no/toppsaker.rss";
+      // NRK Fylke-RSS
+      if (fylke) {
+        url = `https://www.nrk.no/${fylke.toLowerCase()}/toppsaker.rss`;
+      }
+      try {
+        const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`);
+        const data = await res.json();
+        const parser = new window.DOMParser();
+        const xml = parser.parseFromString(data.contents, "text/xml");
+        const items = [...xml.querySelectorAll("item")].map(item => ({
+          title: item.querySelector("title")?.textContent,
+          link: item.querySelector("link")?.textContent
+        })).slice(0, 10);
+        setNyheter(items);
+      } catch {
+        setNyheter([]);
+      }
     }
+    fetchRSS();
+  }, [fylke]);
+
+  return (
+    <section style={{
+      background: "#ecf6fa",
+      borderRadius: "1rem",
+      padding: "1.2rem 1.1rem",
+      minHeight: 80,
+      marginBottom: 10,
+      boxShadow: "0 2px 8px #aad8ef52"
+    }}>
+      <b>📰 Siste nyheter:</b>
+      <div style={{ overflow: "hidden", whiteSpace: "nowrap", marginTop: 5 }}>
+        {nyheter.length === 0 ? (
+          <span>Laster nyheter…</span>
+        ) : (
+          <marquee>
+            {nyheter.map((n, i) =>
+              <span key={i} style={{ marginRight: 22 }}>
+                <a href={n.link} target="_blank" rel="noopener noreferrer">{n.title}</a>
+              </span>
+            )}
+          </marquee>
+        )}
+      </div>
+    </section>
+  );
+}
+
+// === Arrangement-widget (basert på RSS, eventuelt fallback) ===
+function ArrangementWidget({ fylke }) {
+  const [arr, setArr] = useState([]);
+
+  useEffect(() => {
+    async function fetchEvents() {
+      // NRK har ikke arrangementer per fylke, men mange kommuner har RSS på sine nettsider.
+      // Her er eksempel: Fredrikstad: https://www.fredrikstad.kommune.no/aktuelt/arrangementer/rss/
+      let url = "";
+      if (fylke && fylke.toLowerCase() === "ostfold") {
+        url = "https://www.fredrikstad.kommune.no/aktuelt/arrangementer/rss/";
+      }
+      try {
+        if (url) {
+          const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`);
+          const data = await res.json();
+          const parser = new window.DOMParser();
+          const xml = parser.parseFromString(data.contents, "text/xml");
+          const items = [...xml.querySelectorAll("item")].map(item => ({
+            title: item.querySelector("title")?.textContent,
+            link: item.querySelector("link")?.textContent,
+            desc: item.querySelector("description")?.textContent
+          })).slice(0, 7);
+          setArr(items);
+        }
+      } catch { setArr([]); }
+    }
+    fetchEvents();
+  }, [fylke]);
+
+  return (
+    <section style={{
+      background: "#e8fff7",
+      borderRadius: "1rem",
+      padding: "1.2rem 1.1rem",
+      minHeight: 120,
+      boxShadow: "0 2px 8px #97ffec34"
+    }}>
+      <b>🎤 Arrangementer i nærheten:</b>
+      {arr.length === 0 ? (
+        <div style={{ marginTop: 6 }}>Ingen automatisk liste for ditt område ennå.<br />Send inn tips eller <a href="mailto:hub@geocity.no">registrer et arrangement</a>!</div>
+      ) : (
+        <ul style={{ margin: 0, paddingLeft: 18, marginTop: 6 }}>
+          {arr.map((a, i) =>
+            <li key={i}>
+              <a href={a.link} target="_blank" rel="noopener noreferrer">{a.title}</a>
+            </li>
+          )}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+// === Automatisk geo-lokasjon + fylke fra koordinater (for widgetene) ===
+function useGeo() {
+  const [lat, setLat] = useState(59.22);
+  const [lon, setLon] = useState(10.95);
+  const [sted, setSted] = useState("Fredrikstad");
+  const [fylke, setFylke] = useState("ostfold");
+
+  useEffect(() => {
+    navigator.geolocation.getCurrentPosition(async pos => {
+      setLat(pos.coords.latitude);
+      setLon(pos.coords.longitude);
+
+      // Reverse-geocode for å finne sted/fylke (gratis via Nominatim)
+      try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${pos.coords.latitude}&lon=${pos.coords.longitude}&format=json`);
+        const data = await res.json();
+        setSted(data.address.city || data.address.town || data.address.village || "Ditt område");
+        setFylke(data.address.county?.toLowerCase().replace(" ", "") || "ostfold");
+      } catch {}
+    });
   }, []);
 
-  // Hent vær for valgt lokasjon
-  useEffect(() => {
-    fetch(
-      `https://api.open-meteo.com/v1/forecast?latitude=${location.lat}&longitude=${location.lon}&current_weather=true&timezone=auto`
-    )
-      .then(res => res.json())
-      .then(data => setWeatherNow(data.current_weather))
-      .catch(() => setWeatherNow(null));
-  }, [location]);
+  return { lat, lon, sted, fylke };
+}
 
-  // Hent NRK nyheter for county
-  useEffect(() => {
-    const url = nrkFylkeRss[county] || nrkFylkeRss['default'];
-    fetchNewsTitles(url).then(setNews);
-  }, [county]);
+// === DASHBOARD GRID ===
+export default function HubDashboard() {
+  const { lat, lon, sted, fylke } = useGeo();
 
   return (
     <div style={{
-      minHeight: '100vh',
-      background: '#f3f4f6',
-      fontFamily: 'system-ui, sans-serif'
+      paddingTop: 22,
+      background: "#f5f7fa",
+      minHeight: "100vh"
     }}>
-      <style>{`
-        .header-bar {
-          width: 100%;
-          min-height: 76px;
-          background: #236e68;
-          color: white;
-          display: flex;
-          align-items: center;
-          gap: 1.4rem;
-          padding: 0 2.5rem 0 2.5rem;
-          box-sizing: border-box;
-          font-size: 1.16rem;
-        }
-        .header-logo {
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-        }
-        .logo-icon {
-          font-size: 2.3rem;
-          margin-right: 0.3rem;
-        }
-        .brand-name {
-          font-weight: 800;
-          font-size: 1.37rem;
-          letter-spacing: 0.8px;
-          color: white;
-          font-family: inherit;
-        }
-        .weather-info-bar {
-          display: flex;
-          align-items: center;
-          gap: 0.85rem;
-          margin-left: auto;
-          font-size: 1.17rem;
-          font-weight: 500;
-        }
-        .weather-info-bar .emoji {
-          font-size: 1.8rem;
-          margin-right: 0.23rem;
-        }
-        .weather-info-bar .temp {
-          font-weight: bold;
-        }
-        .marquee-bar {
-          width: 100%;
-          background: #184b45;
-          color: #e6ffe6;
-          font-size: 1.06rem;
-          padding: 0.6rem 0 0.5rem 0;
-          overflow: hidden;
-          border-bottom: 2px solid #0b4e3d;
-          white-space: nowrap;
-        }
-        .marquee-inner {
-          display: inline-block;
-          animation: scrollNews 40s linear infinite;
-        }
-        .marquee-inner span {
-          margin-right: 2.7rem;
-        }
-        .marquee-inner a {
-          color: #c6fff7;
-          text-decoration: none;
-          font-weight: 600;
-        }
-        .marquee-inner a:hover {
-          text-decoration: underline;
-        }
-        @keyframes scrollNews {
-          0%   { transform: translateX(100vw);}
-          100% { transform: translateX(-100vw);}
-        }
-        @media (max-width: 900px) {
-          .header-bar {
-            font-size: 0.97rem;
-            padding: 0 0.5rem 0 0.5rem;
-            gap: 0.6rem;
-          }
-          .logo-icon {
-            font-size: 1.7rem;
-            margin-right: 0.2rem;
-          }
-          .brand-name {
-            font-size: 1.05rem;
-          }
-          .weather-info-bar .emoji {
-            font-size: 1.2rem;
-          }
-        }
-        @media (max-width: 700px) {
-          .header-bar {
-            flex-direction: column;
-            align-items: flex-start;
-            gap: 0.5rem;
-            min-height: 105px;
-            padding: 0.5rem;
-          }
-          .weather-info-bar {
-            margin-left: 0;
-            gap: 0.4rem;
-            font-size: 1rem;
-          }
-          .brand-name {
-            font-size: 0.9rem;
-          }
-        }
-      `}</style>
-      {/* Header/banner */}
-      <div className="header-bar">
-        {/* Logo og [Sted] HUB */}
-        <div className="header-logo">
-          <span className="logo-icon" title="Lokasjon">📍</span>
-          <span className="brand-name">{city} HUB</span>
+      <header style={{
+        background: "#1c6868",
+        color: "#fff",
+        padding: "1rem 2rem",
+        display: "flex",
+        alignItems: "center",
+        gap: 18,
+        fontSize: 26,
+        fontWeight: 700
+      }}>
+        <span style={{ fontSize: 32, marginRight: 6 }}>📍</span>
+        <span>{sted} HUB</span>
+      </header>
+
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "370px 1fr 1fr",
+        gap: "2rem",
+        maxWidth: "1250px",
+        margin: "2rem auto"
+      }}>
+        {/* VENSTRE: Kollektiv */}
+        <KollektivWidget lat={lat} lon={lon} />
+
+        {/* MIDT: Vær + Nyheter */}
+        <div>
+          <VaerWidget lat={lat} lon={lon} placeName={sted} />
+          <NyheterWidget fylke={fylke} />
         </div>
-        {/* Vær-info */}
-        <div className="weather-info-bar">
-          {weatherNow ? (
-            <>
-              <span className="emoji">{weatherTypes[weatherNow.weathercode]?.emoji || "❔"}</span>
-              <span>{weatherTypes[weatherNow.weathercode]?.text || "Ukjent"}</span>
-              <span className="temp">{typeof weatherNow.temperature === "number" ? `| ${weatherNow.temperature}°C` : ""}</span>
-              <span style={{ color: "#b6e0db" }}>| Vind: {weatherNow.windspeed} m/s</span>
-            </>
-          ) : (
-            <span>Laster vær...</span>
-          )}
+
+        {/* HØYRE: Arrangementer */}
+        <div>
+          <ArrangementWidget fylke={fylke} />
         </div>
       </div>
-
-      {/* Rullende nyhetsbar */}
-      <div className="marquee-bar">
-        <div className="marquee-inner">
-          {news.length ? (
-            news.map((item, idx) => (
-              <span key={idx}>
-                <a href={item.link} target="_blank" rel="noopener noreferrer">{item.title}</a>
-              </span>
-            ))
-          ) : (
-            <span>Laster siste nyheter for ditt fylke...</span>
-          )}
-        </div>
-      </div>
-
-      {/* Kollektiv-widget */}
-      <KollektivWidget lat={location.lat} lon={location.lon} />
-
-      {/* Hovedinnhold */}
-      <main style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        padding: '2rem'
-      }}>
-        <section style={{
-          background: 'white',
-          borderRadius: '1rem',
-          padding: '2rem',
-          maxWidth: '700px',
-          width: '100%',
-          boxShadow: '0 2px 8px #c7f5e2',
-          marginBottom: '2rem',
-          marginTop: '2rem'
-        }}>
-          <h2>Hva ønsker du å se på forsiden?</h2>
-          <ul>
-            <li>📰 Siste nyheter</li>
-            <li>🗺️ Arrangementer og aktiviteter</li>
-            <li>🚦 Trafikk og kollektiv</li>
-            <li>💬 Kontakt/skjema</li>
-          </ul>
-        </section>
-      </main>
-      <footer style={{
-        background: '#334155',
-        color: 'white',
-        padding: '1rem',
-        textAlign: 'center',
-        borderTopLeftRadius: '1rem',
-        borderTopRightRadius: '1rem'
-      }}>
-        <p>© 2025 {city} HUB</p>
-      </footer>
     </div>
   );
 }
